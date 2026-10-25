@@ -1,0 +1,11 @@
+[
+ {"carrier":"Carrier A","service":"Road economy","dest":"Germany","price":180,"days":5,"onTime":92,"maxKgPerPallet":500},
+ {"carrier":"Carrier B","service":"Road standard","dest":"Germany","price":220,"days":3,"onTime":95,"maxKgPerPallet":750},
+ {"carrier":"Carrier C","service":"Road express","dest":"Germany","price":340,"days":2,"onTime":98,"maxKgPerPallet":400},
+ {"carrier":"Carrier A","service":"Road economy","dest":"France","price":170,"days":5,"onTime":92,"maxKgPerPallet":500},
+ {"carrier":"Carrier B","service":"Road standard","dest":"France","price":210,"days":3,"onTime":95,"maxKgPerPallet":750},
+ {"carrier":"Carrier C","service":"Road express","dest":"France","price":330,"days":2,"onTime":98,"maxKgPerPallet":400},
+ {"carrier":"Carrier A","service":"Road economy","dest":"Netherlands","price":160,"days":5,"onTime":92,"maxKgPerPallet":500},
+ {"carrier":"Carrier B","service":"Road standard","dest":"Netherlands","price":200,"days":3,"onTime":95,"maxKgPerPallet":750},
+ {"carrier":"Carrier C","service":"Road express","dest":"Netherlands","price":320,"days":2,"onTime":98,"maxKgPerPallet":400}
+]
