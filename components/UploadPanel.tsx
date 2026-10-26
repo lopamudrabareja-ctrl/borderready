@@ -1,6 +1,7 @@
 "use client";
-import { ArrowRight, ChevronRight, Download, FileSpreadsheet, Info, RotateCcw, Upload } from "lucide-react";
+import { ArrowRight, Boxes, ChevronRight, Download, FileSpreadsheet, Info, LayoutList, Package, PoundSterling, RotateCcw, Truck, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
+import { summary } from "@/lib/booking";
 import { parseArrayBuffer } from "@/lib/excel";
 import { scanDescription } from "@/lib/prohibited";
 import type { Classifications } from "@/lib/rules";
@@ -75,6 +76,17 @@ export function UploadPanel() {
 
   const computed = useMemo(() => data?.bookings.map((b) => compute(b, data.today, data.cls)) ?? [], [data]);
   const counts = computed.reduce<Record<string, number>>((a, c) => ({ ...a, [c.status]: (a[c.status] ?? 0) + 1 }), {});
+  const totals = useMemo(() => {
+    const sums = (data?.bookings ?? []).map(summary);
+    const withCarrier = computed.filter((c) => c.selected);
+    return {
+      pallets: sums.reduce((t, s) => t + (s.pallets ?? 0), 0),
+      cartons: sums.reduce((t, s) => t + (s.cartons ?? 0), 0),
+      value: sums.reduce((t, s) => t + (s.declaredValue ?? 0), 0),
+      cost: withCarrier.reduce((t, c) => t + (c.selected!.cost ?? 0), 0),
+      priced: withCarrier.length,
+    };
+  }, [data, computed]);
   const visible = data ? data.bookings.map((b, i) => ({ b, i })).filter(({ i }) => !filter || computed[i].status === filter) : [];
   const current = data && (visible.find((v) => v.i === selected) ?? visible[0]);
 
@@ -149,10 +161,17 @@ export function UploadPanel() {
       {error && <ErrorBox text={error} />}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Tile label="All bookings" value={data.bookings.length} active={!filter} onClick={() => setFilter(null)} />
+        <Tile label="All bookings" value={data.bookings.length} active={!filter} onClick={() => setFilter(null)} icon={LayoutList} />
         {(Object.keys(STATUS) as OverallStatus[]).map((s) => (
           <Tile key={s} label={s} value={counts[s] ?? 0} status={s} active={filter === s} onClick={() => setFilter(filter === s ? null : s)} />
         ))}
+      </div>
+
+      <div role="group" className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur sm:grid-cols-4" aria-label="Totals across the file">
+        <Total icon={Boxes} label="Pallets" value={totals.pallets.toLocaleString("en-GB")} />
+        <Total icon={Package} label="Cartons" value={totals.cartons.toLocaleString("en-GB")} />
+        <Total icon={PoundSterling} label="Declared value" value={gbp(totals.value)} />
+        <Total icon={Truck} label="Carrier cost" value={gbp(totals.cost)} sub={`${totals.priced} of ${data.bookings.length} bookings have a carrier`} />
       </div>
 
       {data.warnings.length > 0 && (
@@ -224,17 +243,32 @@ export function UploadPanel() {
   );
 }
 
-function Tile({ label, value, status, active, onClick }: { label: string; value: number; status?: OverallStatus; active: boolean; onClick: () => void }) {
+function Total({ icon: Icon, label, value, sub }: { icon: typeof Boxes; label: string; value: string; sub?: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-lime-100 text-forest-800"><Icon className="h-4 w-4" aria-hidden /></span>
+      <div className="min-w-0">
+        <p className="text-xs text-slate-600">{label}</p>
+        <p className="truncate font-semibold text-forest-950 tnum">{value}</p>
+        {sub && <p className="truncate text-[11px] text-slate-600">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+function Tile({ label, value, status, active, onClick, icon }: { label: string; value: number; status?: OverallStatus; active: boolean; onClick: () => void; icon?: typeof Boxes }) {
   const s = status ? STATUS[status] : null;
-  const Icon = s?.icon;
+  const Icon = s?.icon ?? icon;
   return (
     <button onClick={onClick} aria-pressed={active}
-      className={`rounded-2xl border bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${active ? "border-forest-900 ring-1 ring-forest-900" : "border-slate-200/80 hover:border-slate-300"}`}>
-      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
-        {Icon && <Icon className={`h-3.5 w-3.5 ${s!.tone}`} aria-hidden />}
+      className={`flex items-center gap-3 rounded-2xl border bg-white/90 p-4 text-left shadow-[0_1px_2px_rgba(16,40,30,0.05)] backdrop-blur transition ${active ? "border-forest-900 ring-1 ring-forest-900" : "border-slate-200/80 hover:border-slate-300"}`}>
+      {Icon && <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${s ? s.soft : "bg-lime-100"}`}><Icon className={`h-5 w-5 ${s ? s.tone : "text-forest-800"}`} aria-hidden /></span>}
+      <div className="min-w-0">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
         {s ? <><span className="truncate sm:hidden">{s.short}</span><span className="hidden truncate sm:inline">{label}</span></> : <span className="truncate">{label}</span>}
       </div>
-      <div className="mt-1 text-2xl font-semibold tracking-tight text-forest-950 tnum">{value}</div>
+      <div className="text-2xl font-semibold tracking-tight text-forest-950 tnum">{value}</div>
+      </div>
     </button>
   );
 }

@@ -43,6 +43,10 @@ type View = "overview" | "checks" | "details" | "notice";
 export function ResultView({ booking, today, classifications, onChange }: Props) {
   const c = useMemo(() => compute(booking, today, classifications), [booking, today, classifications]);
   const [view, setView] = useState<View>("overview");
+  const [confirmedFlag, setConfirmed] = useState(false);
+  const [notified, setNotified] = useState(false);
+  // a confirmation only stands while nothing blocks it; editing the booking into a blocked state undoes it
+  const confirmed = confirmedFlag && !blockReason(c);
   const act = (a: CheckAction) => {
     if (a.kind === "switch-carrier") onChange({ ...booking, carrierOverride: a.carrier });
     if (a.kind === "add-pallets") onChange({ ...booking, pallets: a.pallets ?? booking.pallets });
@@ -50,7 +54,7 @@ export function ResultView({ booking, today, classifications, onChange }: Props)
   const issues = c.checks.filter((r) => r.status !== "pass").length;
   return (
     <div className="space-y-4">
-      <StatusHero booking={booking} c={c} onOpenNotice={() => setView("notice")} />
+      <StatusHero booking={booking} c={c} confirmed={confirmed} notified={notified} onConfirm={setConfirmed} onOpenNotice={() => setView("notice")} />
       <PillTabs label="Booking sections" value={view} onChange={setView} tabs={[
         { id: "overview", label: "Overview" },
         { id: "checks", label: "All checks", badge: issues },
@@ -71,7 +75,7 @@ export function ResultView({ booking, today, classifications, onChange }: Props)
           <NextSteps status={c.status} checks={c.checks} />
         </div>
       )}
-      {view === "notice" && <NoticeCard booking={booking} c={c} />}
+      {view === "notice" && <NoticeCard booking={booking} c={c} onCopied={() => setNotified(true)} />}
     </div>
   );
 }
@@ -83,7 +87,56 @@ const RULE_NAMES: Record<string, string> = {
 };
 
 const kindOf = (r: CheckResult) => (r.status === "pass" ? "pass" : r.status === "cannot-check" ? "unknown" : r.severity);
-const SEGMENT: Record<string, string> = { pass: "bg-lime-500", red: "bg-red-500", amber: "bg-amber-400", unknown: "bg-slate-200" };
+const ARC: Record<string, string> = { pass: "stroke-lime-500", red: "stroke-red-500", amber: "stroke-amber-400", unknown: "stroke-slate-200" };
+
+/** Half-circle gauge with one segment per rule, coloured by its result. */
+function ChecksGauge({ checks, passed }: { checks: CheckResult[]; passed: number }) {
+  const sorted = [...checks].sort((a, b) => a.ruleId.localeCompare(b.ruleId));
+  const cx = 60, cy = 60, r = 46, gap = 3, step = 180 / sorted.length;
+  const pt = (deg: number) => [cx + r * Math.cos((deg * Math.PI) / 180), cy - r * Math.sin((deg * Math.PI) / 180)].map((n) => n.toFixed(2)).join(",");
+  return (
+    <svg viewBox="0 0 120 68" className="h-[68px] w-[120px] shrink-0" role="img" aria-label={`${passed} of 10 checks passed`}>
+      {sorted.map((ck, i) => {
+        const a1 = 180 - i * step - gap / 2, a2 = 180 - (i + 1) * step + gap / 2;
+        return (
+          <path key={ck.ruleId} d={`M${pt(a1)} A${r},${r} 0 0 1 ${pt(a2)}`} fill="none" strokeWidth={11} className={`transition-colors ${ARC[kindOf(ck)]}`}>
+            <title>{`${ck.ruleId} ${RULE_NAMES[ck.ruleId]}: ${ck.status}`}</title>
+          </path>
+        );
+      })}
+      <text x={cx} y={cy - 4} textAnchor="middle" className="fill-forest-950 tnum" fontSize="20" fontWeight="700">{passed}<tspan className="fill-slate-500" fontSize="12" fontWeight="600">/10</tspan></text>
+    </svg>
+  );
+}
+
+/** Where the seller is in the booking journey; each step is derived from the booking, not stored. */
+function Progress({ c, confirmed, notified }: { c: Computed; confirmed: boolean; notified: boolean }) {
+  const steps = [
+    { label: "Details", full: "All details given", done: c.checks.every((r) => r.status !== "cannot-check") },
+    { label: "No must-fix", full: "No must-fix issues", done: !c.checks.some((r) => isBlocking(r, "red")) },
+    { label: "Carrier", full: "Carrier chosen", done: !!c.selected },
+    { label: "Confirmed", full: "Booking confirmed", done: confirmed },
+    { label: "Receiver told", full: "Receiver notice copied", done: confirmed && notified },
+  ];
+  const current = steps.findIndex((s) => !s.done);
+  return (
+    <ol className="mt-5 flex items-start border-t border-slate-100 pt-4" aria-label="Booking progress">
+      {steps.map((s, i) => (
+        <li key={s.label} className="relative flex flex-1 flex-col items-center text-center" title={s.full} aria-current={i === current ? "step" : undefined}>
+          {i > 0 && <span className={`absolute right-1/2 top-3 h-0.5 w-full -translate-y-1/2 ${steps[i - 1].done && s.done ? "bg-lime-500" : "bg-slate-200"}`} aria-hidden />}
+          <span className={`relative z-10 flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold tnum ring-4 ring-white ${
+            s.done ? "bg-lime-500 text-forest-950" : i === current ? "bg-forest-900 text-white" : "bg-slate-100 text-slate-500"
+          }`}>
+            {s.done ? <Check className="h-3.5 w-3.5" aria-hidden /> : i + 1}
+          </span>
+          <span className={`mt-1.5 text-[11px] leading-tight ${s.done ? "font-medium text-forest-950" : i === current ? "font-semibold text-forest-950" : "text-slate-500"}`}>
+            {s.label}<span className="sr-only">{s.done ? " (done)" : i === current ? " (next)" : ""}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 function blockReason(c: Computed) {
   const reds = c.checks.filter((r) => isBlocking(r, "red"));
@@ -91,9 +144,11 @@ function blockReason(c: Computed) {
   return !c.selected ? "No carrier can take this load yet" : null;
 }
 
-/** The verdict at a glance: status, a 10-segment checks bar, the chosen carrier and the confirm action. */
-export function StatusHero({ booking, c, onOpenNotice }: { booking: Booking; c: Computed; onOpenNotice: () => void }) {
-  const [confirmed, setConfirmed] = useState(false);
+/** The verdict at a glance: checks gauge, status, key numbers, progress and the confirm action. */
+export function StatusHero({ booking, c, confirmed, notified, onConfirm, onOpenNotice }: {
+  booking: Booking; c: Computed; confirmed: boolean; notified: boolean; onConfirm: (v: boolean) => void; onOpenNotice: () => void;
+}) {
+  const setConfirmed = onConfirm;
   const s = STATUS[c.status];
   const Icon = s.icon;
   const passed = c.checks.filter((r) => r.status === "pass").length;
@@ -113,6 +168,7 @@ export function StatusHero({ booking, c, onOpenNotice }: { booking: Booking; c: 
             </p>
             <p className="mt-2 text-slate-600">Next: the carrier confirms a collection slot, you send the commercial invoice with the goods, and the export declaration is made before they leave the UK. Send the receiver the delivery notice so they know exactly what to count.</p>
             {c.status === "Can dispatch after review" && <p className="mt-2 font-medium text-amber-800">Some &quot;check before shipping&quot; items are still open. Look at them before collection.</p>}
+            <Progress c={c} confirmed={confirmed} notified={notified} />
             <div className="mt-3 flex flex-wrap gap-2">
               <button onClick={onOpenNotice} className="inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-forest-800">
                 <Mail className="h-3.5 w-3.5" aria-hidden />Open receiver notice
@@ -126,31 +182,25 @@ export function StatusHero({ booking, c, onOpenNotice }: { booking: Booking; c: 
   }
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(16,40,30,0.05)]">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3" role="status">
-          <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${s.soft}`}>
-            <Icon className={`h-6 w-6 ${s.tone}`} aria-hidden />
-          </span>
+    <section className="rounded-2xl border border-white/70 bg-white/90 p-5 shadow-[0_1px_2px_rgba(16,40,30,0.05),0_8px_24px_-12px_rgba(16,40,30,0.12)] backdrop-blur">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-center gap-4" role="status">
+          <ChecksGauge checks={c.checks} passed={passed} />
           <div className="min-w-0">
-            <div className="text-lg font-semibold tracking-tight text-forest-950"><Flash value={c.status}>{c.status}</Flash></div>
+            <div className="flex items-center gap-1.5 text-lg font-semibold tracking-tight text-forest-950">
+              <Icon className={`h-5 w-5 shrink-0 ${s.tone}`} aria-hidden /><Flash value={c.status}>{c.status}</Flash>
+            </div>
             <div className="text-sm text-slate-600 tnum">{passed} of 10 checks passed</div>
+            {blocked && <div className="mt-0.5 flex items-start gap-1 text-xs text-slate-600"><Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />{blocked}</div>}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1.5">
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
           <button disabled={!!blocked} onClick={() => setConfirmed(true)}
             className="inline-flex items-center gap-2 rounded-xl bg-forest-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-forest-800 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none">
             {blocked ? <Lock className="h-4 w-4" aria-hidden /> : <CircleCheck className="h-4 w-4 text-lime-400" aria-hidden />}
             Confirm booking
           </button>
-          {blocked && <span className="max-w-64 text-right text-xs text-slate-600">{blocked}</span>}
         </div>
-      </div>
-
-      <div className="mt-4 flex gap-1" aria-label="Checks overview">
-        {[...c.checks].sort((a, b) => a.ruleId.localeCompare(b.ruleId)).map((r) => (
-          <span key={r.ruleId} title={`${r.ruleId} ${RULE_NAMES[r.ruleId]}: ${r.status}`} className={`h-1.5 flex-1 rounded-full transition-colors ${SEGMENT[kindOf(r)]}`} />
-        ))}
       </div>
 
       <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -160,6 +210,7 @@ export function StatusHero({ booking, c, onOpenNotice }: { booking: Booking; c: 
         <Stat label="Arrives" value={c.selected && sum.readyDate ? fmtDate(addDays(sum.readyDate, c.selected.days)) : c.selected ? `${c.selected.days} days` : "—"} sub={c.selected ? `${c.selected.days} days · ${c.selected.onTime}% on time` : ""} />
         <Stat label="Weight / pallet" value={<Flash value={sum.weightPerPallet}>{sum.weightPerPallet != null ? `${sum.weightPerPallet} kg` : "—"}</Flash>} sub={(c.selected ?? c.chosen) ? `limit ${(c.selected ?? c.chosen)!.maxKgPerPallet} kg` : ""} />
       </dl>
+      <Progress c={c} confirmed={confirmed} notified={notified} />
     </section>
   );
 }
@@ -530,7 +581,7 @@ export function NextSteps({ status, checks }: { status: OverallStatus; checks: C
 }
 
 /** Advance notice for the receiving site, in the destination's language. */
-function NoticeCard({ booking, c }: { booking: Booking; c: Computed }) {
+function NoticeCard({ booking, c, onCopied }: { booking: Booking; c: Computed; onCopied: () => void }) {
   const [lang, setLang] = useState<Lang>(() => langFor(booking.destCountry));
   const [copied, setCopied] = useState(false);
   const blocked = blockReason(c);
@@ -546,7 +597,7 @@ function NoticeCard({ booking, c }: { booking: Booking; c: Computed }) {
   }
   const n = buildNotice(booking, c.selected, lang);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(n.text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
+    try { await navigator.clipboard.writeText(n.text); setCopied(true); onCopied(); setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
   };
   return (
     <Card title="Receiver notice" icon={Mail} aside={

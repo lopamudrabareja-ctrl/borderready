@@ -20,7 +20,9 @@
 }
 
 body {
-  background: var(--background);
+  /* soft grey-green wash, a little lighter at the top, so white cards float on it */
+  background: radial-gradient(1200px 600px at 70% -10%, #f7faf3 0%, transparent 60%), linear-gradient(180deg, #eef3ee 0%, #e6ede8 100%) fixed;
+  background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   font-feature-settings: "cv11", "ss01";
