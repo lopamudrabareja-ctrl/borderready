@@ -12,11 +12,15 @@ interface Msg { role: "user" | "assistant"; text: string }
 // Minimal typing for the browser's built-in speech recognition (Chrome, Edge, Safari).
 interface Recognition {
   lang: string; interimResults: boolean; continuous: boolean;
-  onresult: ((e: { results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
   onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
-  start(): void; stop(): void;
+  start(): void; stop(): void; abort(): void;
 }
+
+const SILENCE_MS = 4000; // stop and send after this long without new words
+const FIRST_WORDS_MS = 8000; // ...or this long if nothing was said at all
+const MAX_RESTARTS = 6; // browsers end long sessions on their own; reopen this many times
 type RecognitionCtor = new () => Recognition;
 const recognitionCtor = (): RecognitionCtor | null => {
   if (typeof window === "undefined") return null;
@@ -52,12 +56,21 @@ export function ChatPanel() {
   const log = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const rec = useRef<Recognition | null>(null);
+  // dictation state lives in refs so restarts and timers see the latest values
+  const wantListen = useRef(false);
+  const committed = useRef("");
+  const interim = useRef("");
+  const restarts = useRef(0);
+  const silence = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendRef = useRef<(text: string) => void>(() => {});
   const classifications = useMemo(() => new Map(Object.entries(meta.classifications)), [meta.classifications]);
 
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: "smooth" }); }, [messages, busy]);
   // feature-detect after mount so the server render and the first client render match
-  useEffect(() => { setVoiceOk(!!recognitionCtor()); }, []);
+  useEffect(() => {
+    setVoiceOk(!!recognitionCtor());
+    return () => { wantListen.current = false; rec.current?.abort(); if (silence.current) clearTimeout(silence.current); };
+  }, []);
 
   const say = (text: string) => {
     if (!speak || typeof window === "undefined" || !window.speechSynthesis) return;
@@ -97,42 +110,91 @@ export function ChatPanel() {
   };
   sendRef.current = send;
 
-  const toggleMic = () => {
-    if (listening) { rec.current?.stop(); return; }
+  const armSilence = (ms: number) => {
+    if (silence.current) clearTimeout(silence.current);
+    silence.current = setTimeout(() => stopListening(), ms);
+  };
+
+  const finishListening = () => {
+    if (silence.current) clearTimeout(silence.current);
+    setListening(false);
+    const text = `${committed.current} ${interim.current}`.replace(/\s+/g, " ").trim();
+    committed.current = "";
+    interim.current = "";
+    if (text) sendRef.current(text);
+  };
+
+  const stopListening = () => {
+    wantListen.current = false;
+    if (rec.current) rec.current.stop(); // onend sends what was heard
+    else finishListening();
+  };
+
+  const startSession = () => {
     const Ctor = recognitionCtor();
     if (!Ctor) return;
     const r = new Ctor();
     r.lang = "en-GB";
     r.interimResults = true;
-    r.continuous = false;
-    let finalText = "";
+    r.continuous = true; // keep listening through pauses until the seller stops or goes quiet
     r.onresult = (e) => {
-      let interim = "";
-      finalText = "";
-      for (let i = 0; i < e.results.length; i++) {
+      if (rec.current !== r) return; // ignore a session we've already moved on from
+      let live = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
-        if (res.isFinal) finalText += res[0].transcript;
-        else interim += res[0].transcript;
+        if (res.isFinal) committed.current = `${committed.current} ${res[0].transcript}`;
+        else live += res[0].transcript;
       }
-      setInput(finalText + interim);
+      interim.current = live;
+      setInput(`${committed.current} ${live}`.replace(/\s+/g, " ").trim());
+      armSilence(SILENCE_MS);
     };
     r.onerror = (e) => {
-      setVoiceNote(e.error === "not-allowed" || e.error === "service-not-allowed"
-        ? "Microphone is blocked. Allow it in your browser's site settings, or type instead."
-        : e.error === "no-speech" ? "Didn't catch that. Tap the mic and try again." : null);
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        wantListen.current = false;
+        setVoiceNote("Microphone is blocked. Allow it in your browser's site settings, or type instead.");
+      } else if (e.error === "audio-capture") {
+        wantListen.current = false;
+        setVoiceNote("No microphone found. Check it's connected, or type instead.");
+      } else if (e.error === "network") {
+        wantListen.current = false;
+        setVoiceNote("Voice needs an internet connection in this browser. Type instead, or try again.");
+      }
+      // "no-speech" and "aborted" are handled by onend
     };
     r.onend = () => {
-      setListening(false);
-      if (finalText.trim()) sendRef.current(finalText);
+      if (rec.current !== r) return;
+      rec.current = null;
+      if (wantListen.current && restarts.current < MAX_RESTARTS) {
+        restarts.current += 1;
+        if (interim.current) { committed.current = `${committed.current} ${interim.current}`; interim.current = ""; }
+        startSession(); // the browser ended the session early: carry on where we were
+      } else {
+        finishListening();
+      }
     };
     rec.current = r;
-    setVoiceNote(null);
-    setListening(true);
     r.start();
   };
 
+  const toggleMic = () => {
+    if (listening) { stopListening(); return; }
+    window.speechSynthesis?.cancel(); // don't transcribe our own read-aloud
+    committed.current = input.trim(); // keep anything already typed
+    interim.current = "";
+    restarts.current = 0;
+    wantListen.current = true;
+    setVoiceNote(null);
+    setListening(true);
+    armSilence(FIRST_WORDS_MS);
+    startSession();
+  };
+
   const reset = () => {
-    rec.current?.stop();
+    wantListen.current = false;
+    rec.current?.abort();
+    if (silence.current) clearTimeout(silence.current);
+    committed.current = ""; interim.current = ""; setListening(false);
     if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     setMessages([WELCOME]); setBooking(emptyBooking()); setMeta(emptyMeta()); setBasic(false); setToday(null); setInput("");
   };
@@ -205,10 +267,10 @@ export function ChatPanel() {
         <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="p-3">
           <div className={`flex items-end gap-2 rounded-xl border bg-white p-1.5 pl-3 focus-within:ring-2 ${listening ? "border-lime-500 ring-2 ring-lime-400/40" : "border-slate-300 focus-within:border-forest-700 focus-within:ring-lime-400/30"}`}>
             <label htmlFor="chat-input" className="sr-only">Message</label>
-            <textarea id="chat-input" ref={field} rows={1} value={input} disabled={busy} maxLength={1500}
+            <textarea id="chat-input" ref={field} rows={1} value={input} disabled={busy} readOnly={listening} maxLength={1500}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-              placeholder={listening ? "Listening…" : started ? "Reply, or change any detail…" : "Describe your shipment…"}
+              placeholder={listening ? "Listening… speak naturally, pauses are fine" : started ? "Reply, or change any detail…" : "Describe your shipment…"}
               className="max-h-32 min-h-[36px] flex-1 resize-none bg-transparent py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-500" />
             {voiceOk && (
               <button type="button" onClick={toggleMic} disabled={busy} aria-pressed={listening} aria-label={listening ? "Stop listening" : "Speak your message"}
@@ -221,7 +283,9 @@ export function ChatPanel() {
               <Send className="h-4 w-4" aria-hidden />
             </button>
           </div>
-          <p className="mt-1.5 px-1 text-[11px] text-slate-500">Demo: don&apos;t enter real customer data.</p>
+          <p className="mt-1.5 px-1 text-[11px] text-slate-500" aria-live="polite">
+            {listening ? "Listening. Tap ■ when you're done, or pause for 4 seconds, and it sends." : "Demo: don't enter real customer data."}
+          </p>
         </form>
       </section>
 
