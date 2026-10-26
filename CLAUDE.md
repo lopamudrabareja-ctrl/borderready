@@ -1,4 +1,4 @@
-# Shipment Copilot: project spec (Case 2 hackathon)
+# BorderReady: project spec (Case 2 hackathon)
 
 Put this file in the project root. Claude Code reads it automatically every session.
 

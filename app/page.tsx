@@ -115,7 +115,7 @@ function Brand({ compact }: { compact?: boolean }) {
         <Truck className="h-5 w-5" aria-hidden />
       </span>
       <div className="min-w-0 leading-tight">
-        <h1 className="text-[15px] font-semibold tracking-tight">Shipment Copilot</h1>
+        <h1 className="text-[15px] font-semibold tracking-tight">BorderReady</h1>
         {!compact && <p className="text-xs text-white/65">UK → DE · FR · NL pallets</p>}
       </div>
     </div>

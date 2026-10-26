@@ -6,8 +6,8 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Shipment Copilot",
-  description: "Book and pre-flight check pallet shipments from the UK to Germany, France and the Netherlands.",
+  title: "BorderReady",
+  description: "BorderReady: book pallet shipments from the UK to Germany, France and the Netherlands, and catch mistakes before they reach the border.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

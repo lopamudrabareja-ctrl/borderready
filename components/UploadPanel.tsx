@@ -135,7 +135,7 @@ export function UploadPanel() {
               <Upload className="h-4 w-4" aria-hidden /> Choose file
             </button>
           </div>
-          <a href={SAMPLE_URL} download="shipment_copilot_sample.xlsx" className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-forest-700 hover:underline">
+          <a href={SAMPLE_URL} download="borderready_sample.xlsx" className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-forest-700 hover:underline">
             <Download className="h-3.5 w-3.5" aria-hidden /> Download the sample file to see the layout
           </a>
           <p className="mt-4 text-[11px] text-slate-500">Read in your browser. Nothing is uploaded.</p>
@@ -157,7 +157,7 @@ export function UploadPanel() {
           </div>
         </div>
         <div className="ml-auto flex gap-2">
-          <a href={SAMPLE_URL} download="shipment_copilot_sample.xlsx" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-white hover:text-slate-900">
+          <a href={SAMPLE_URL} download="borderready_sample.xlsx" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-white hover:text-slate-900">
             <Download className="h-3.5 w-3.5" aria-hidden /> Sample file
           </a>
           <button onClick={pickFile} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50">
