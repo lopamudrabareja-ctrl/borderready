@@ -1,7 +1,7 @@
 "use client";
-import { ArrowLeft, Building2, History, Lock, PackageCheck, Pencil, Save, X, XCircle } from "lucide-react";
+import { ArrowLeft, Building2, History, Lock, MapPin, PackageCheck, Pencil, Save, Truck, X, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
-import { editCutoff, emptyProfile, orderState, type Order, type SellerProfile } from "@/lib/orders";
+import { editCutoff, orderState, type Order, type SellerProfile } from "@/lib/orders";
 import { isBlocking } from "@/lib/rules";
 import { ORIGIN_CITIES } from "@/lib/types";
 import { compute, ResultView } from "./ResultView";
@@ -56,40 +56,67 @@ export function AccountPanel() {
   return (
     <div className="space-y-5">
       {/* remount when the profile changes elsewhere (e.g. the first chat booking fills in the business name) */}
-      <ProfileCard key={JSON.stringify(store.profile)} profile={store.profile} onSave={store.setProfile} />
+      <ProfileCard key={JSON.stringify(store.profile)} profile={store.profile} orders={store.orders} onSave={store.setProfile} />
       <OrdersTable orders={store.orders} today={today} onOpen={setOpenId} />
     </div>
   );
 }
 
-function ProfileCard({ profile, onSave }: { profile: SellerProfile; onSave: (p: SellerProfile) => void }) {
-  const [editing, setEditing] = useState(!profile.businessName);
-  const [draft, setDraft] = useState<SellerProfile>(profile);
-  const [saved, setSaved] = useState(false);
+/** The most frequent value in a list (ties: the most recent, since orders are newest first). */
+function mostCommon(values: (string | null | undefined)[]): string {
+  const counts = new Map<string, number>();
+  for (const v of values) if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+}
+
+/** The seller's profile, built from what they've booked. Saved edits override the derived values. */
+function ProfileCard({ profile, orders, onSave }: { profile: SellerProfile; orders: Order[]; onSave: (p: SellerProfile) => void }) {
+  const live = orders.filter((o) => o.status === "confirmed");
+  const derived = {
+    businessName: profile.businessName || mostCommon(orders.map((o) => o.booking.sellerName)),
+    defaultOrigin: profile.defaultOrigin || mostCommon(orders.map((o) => o.booking.originCity)),
+  };
+  const destinations = [...new Set(orders.map((o) => o.booking.destCity && `${o.booking.destCity}, ${o.booking.destCountry}`).filter(Boolean))] as string[];
+  const pallets = live.reduce((t, o) => t + (o.booking.pallets ?? 0), 0);
+  const spend = live.reduce((t, o) => t + (o.carrier.cost ?? 0), 0);
+  const carrier = mostCommon(live.map((o) => o.carrier.carrier));
+  const since = orders.length ? orders.reduce((min, o) => (o.createdAt < min ? o.createdAt : min), orders[0].createdAt).slice(0, 10) : null;
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<SellerProfile>({ ...profile, ...derived });
   const set = (k: keyof SellerProfile, v: string) => setDraft((d) => ({ ...d, [k]: v }));
-  const input = "w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 outline-none focus:border-forest-700 focus:ring-2 focus:ring-lime-400/30";
-  const fields: { k: keyof SellerProfile; label: string; type?: string; hint?: string }[] = [
-    { k: "businessName", label: "Business name", hint: "Used as the seller name on every booking" },
-    { k: "contactName", label: "Contact name" },
-    { k: "email", label: "Email", type: "email" },
-    { k: "phone", label: "Phone", type: "tel" },
-    { k: "eori", label: "EORI number", hint: "Starts with GB. Needed to export from Great Britain" },
-  ];
-  return (
-    <Card title="Seller profile" icon={Building2} aside={!editing && (
-      <button onClick={() => { setDraft(profile); setEditing(true); setSaved(false); }} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50">
-        <Pencil className="h-3.5 w-3.5" aria-hidden />Edit profile
-      </button>
-    )}>
-      {editing ? (
-        <form onSubmit={(e) => { e.preventDefault(); onSave(draft); setEditing(false); setSaved(true); }} className="space-y-4">
-          {!profile.businessName && <p className="text-sm text-slate-700">Set up your profile once and the chat won&apos;t need to ask who&apos;s sending. Demo: use sample details only.</p>}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+  const input = "w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-900 outline-none focus:border-forest-700 focus:ring-2 focus:ring-lime-400/30";
+  const name = derived.businessName;
+
+  if (!name && !orders.length && !editing) {
+    return (
+      <Card title="Seller profile" icon={Building2}>
+        <div className="flex flex-wrap items-center gap-4">
+          <p className="min-w-0 flex-1 text-sm text-slate-700">Your profile builds itself from your bookings: business name, collection city, where you ship and what you spend. Confirm a booking and it appears here.</p>
+          <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+            <Pencil className="h-3.5 w-3.5" aria-hidden />Add details now
+          </button>
+        </div>
+      </Card>
+    );
+  }
+
+  if (editing) {
+    const fields: { k: keyof SellerProfile; label: string; type?: string; placeholder?: string }[] = [
+      { k: "businessName", label: "Business name" },
+      { k: "contactName", label: "Contact name" },
+      { k: "email", label: "Email", type: "email" },
+      { k: "phone", label: "Phone", type: "tel" },
+      { k: "eori", label: "EORI number", placeholder: "GB…" },
+    ];
+    return (
+      <Card title="Edit seller details" icon={Building2}>
+        <form onSubmit={(e) => { e.preventDefault(); onSave(draft); setEditing(false); }} className="space-y-4">
+          <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {fields.map((f) => (
               <label key={f.k} className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
                 {f.label}
-                <input id={`profile-${f.k}`} type={f.type ?? "text"} className={input} value={draft[f.k]} onChange={(e) => set(f.k, e.target.value)} />
-                {f.hint && <span className="font-normal text-slate-500">{f.hint}</span>}
+                <input id={`profile-${f.k}`} type={f.type ?? "text"} placeholder={f.placeholder} className={input} value={draft[f.k]} onChange={(e) => set(f.k, e.target.value)} />
               </label>
             ))}
             <label className="grid min-w-0 gap-1 text-xs font-medium text-slate-700">
@@ -100,26 +127,51 @@ function ProfileCard({ profile, onSave }: { profile: SellerProfile; onSave: (p: 
             </label>
           </div>
           <div className="flex justify-end gap-2">
-            {profile.businessName && <button type="button" onClick={() => setEditing(false)} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"><X className="h-4 w-4" aria-hidden />Cancel</button>}
-            <button type="submit" disabled={!draft.businessName.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-4 py-2 text-sm font-semibold text-white hover:bg-forest-800 disabled:bg-slate-200 disabled:text-slate-500">
-              <Save className="h-4 w-4 text-lime-400" aria-hidden />Save profile
+            <button type="button" onClick={() => { setDraft({ ...profile, ...derived }); setEditing(false); }} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"><X className="h-4 w-4" aria-hidden />Cancel</button>
+            <button type="submit" className="inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-4 py-2 text-sm font-semibold text-white hover:bg-forest-800">
+              <Save className="h-4 w-4 text-lime-400" aria-hidden />Save details
             </button>
           </div>
         </form>
-      ) : (
-        <div className="space-y-3">
-          {saved && <p className="text-sm font-medium text-forest-700" role="status">Profile saved.</p>}
-          <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            {[...fields.map((f) => [f.label, profile[f.k]] as const), ["Usual collection city", profile.defaultOrigin] as const].map(([label, value]) => (
-              <div key={label} className="min-w-0"><dt className="text-xs text-slate-600">{label}</dt><dd className={`truncate font-medium ${value ? "text-forest-950" : "text-slate-400"}`}>{value || "Not set"}</dd></div>
-            ))}
-          </dl>
-          <p className="text-xs text-slate-500">Saved in this browser only.{" "}
-            <button onClick={() => { onSave(emptyProfile()); setDraft(emptyProfile()); setEditing(true); }} className="underline hover:text-slate-800">Clear profile</button>
-          </p>
+      </Card>
+    );
+  }
+
+  const contact = [profile.contactName, profile.email, profile.phone].filter(Boolean).join(" · ");
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+      <div className="flex flex-wrap items-center gap-4 bg-forest-900 px-5 py-4 text-white">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-lime-400 text-lg font-bold text-forest-950" aria-hidden>
+          {(name || "?").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-lg font-semibold tracking-tight">{name || "Your business"}</h2>
+          <p className="truncate text-sm text-white/70">{contact || "No contact details yet"}{profile.eori ? ` · EORI ${profile.eori}` : ""}</p>
         </div>
-      )}
-    </Card>
+        <button onClick={() => { setDraft({ ...profile, ...derived }); setEditing(true); }} className="inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20">
+          <Pencil className="h-3.5 w-3.5" aria-hidden />Edit details
+        </button>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-6 gap-y-4 px-5 py-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
+        <ProfileFact icon={MapPin} label="Collects from" value={derived.defaultOrigin || "—"} />
+        <ProfileFact label="Ships to" value={destinations.length ? destinations.slice(0, 3).join("; ") + (destinations.length > 3 ? ` +${destinations.length - 3}` : "") : "—"} wide />
+        <ProfileFact label="Orders" value={`${live.length}${orders.length > live.length ? ` (+${orders.length - live.length} cancelled)` : ""}`} />
+        <ProfileFact label="Pallets booked" value={pallets.toLocaleString("en-GB")} />
+        <ProfileFact icon={Truck} label="Carrier spend" value={`${gbp(spend)}${carrier ? ` · mostly ${carrier}` : ""}`} />
+      </dl>
+      <p className="border-t border-slate-100 px-5 py-2.5 text-xs text-slate-500">
+        Built from your bookings{since ? ` since ${fmtDate(since)}` : ""} and saved in this browser. Edit anything that&apos;s wrong or missing.
+      </p>
+    </section>
+  );
+}
+
+function ProfileFact({ icon: Icon, label, value, wide }: { icon?: typeof MapPin; label: string; value: string; wide?: boolean }) {
+  return (
+    <div className={`min-w-0 ${wide ? "col-span-2" : ""}`}>
+      <dt className="flex items-center gap-1 text-xs text-slate-600">{Icon && <Icon className="h-3.5 w-3.5" aria-hidden />}{label}</dt>
+      <dd className="mt-0.5 font-medium text-forest-950 tnum">{value}</dd>
+    </div>
   );
 }
 
