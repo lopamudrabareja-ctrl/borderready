@@ -137,8 +137,9 @@ export function r09(b: Booking): CheckResult {
 
 export function r10(b: Booking, today: string): CheckResult {
   if (!b.readyDate) return cannot("R-10", "amber", "Ready-to-ship date missing.", "Enter the ready-to-ship date.");
-  if (b.readyDate >= today) return pass("R-10", "amber", `Ready date ${b.readyDate} is today or later.`);
-  return fail("R-10", "amber", `Ready date ${b.readyDate} is in the past (today is ${today}).`, "Choose today or a future date.");
+  const dmy = (iso: string) => iso.split("-").reverse().join("-"); // DD-MM-YYYY, as in the template
+  if (b.readyDate >= today) return pass("R-10", "amber", `Ready date ${dmy(b.readyDate)} is today or later.`);
+  return fail("R-10", "amber", `Ready date ${dmy(b.readyDate)} is in the past (today is ${dmy(today)}).`, "Choose today or a future date.");
 }
 
 export function runChecks(raw: Booking, today: string, cls: Classifications = new Map()): CheckResult[] {

@@ -145,7 +145,7 @@ export function ResultView({ booking, today, classifications, onChange, onConfir
               <NextSteps status={c.status} checks={c.checks} />
             </div>
           )}
-          {view === "notice" && <NoticeCard booking={booking} c={c} confirmed={confirmedNow} onCopied={() => setNotified(true)} />}
+          {view === "notice" && <NoticeCard booking={{ ...booking, id: order?.id ?? confirmed?.id ?? booking.id }} c={c} confirmed={confirmedNow} onCopied={() => setNotified(true)} />}
         </>
       )}
     </div>
