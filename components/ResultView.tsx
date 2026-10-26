@@ -1,16 +1,21 @@
 "use client";
 import {
-  ArrowRight, Ban, BadgeCheck, Boxes, Building2, Calendar, Check, ChevronDown, CircleCheck, Copy, ListChecks, Lock, Mail,
-  MapPin, Package, Route, Truck, Warehouse,
+  ArrowRight, Ban, BadgeCheck, Boxes, Building2, Calculator, Calendar, Check, ChevronDown, CircleCheck, CircleX, Copy, ListChecks, Lock, Mail,
+  MapPin, Package, Pencil, Route, TriangleAlert, Truck, Warehouse, XCircle,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useImperativeHandle, useMemo, useState, type Ref } from "react";
 import { summary } from "@/lib/booking";
+import { workings } from "@/lib/calc";
 import { BALANCED_WEIGHTS, recommend } from "@/lib/carriers";
+import { decide, type Decision } from "@/lib/confirm";
 import { CALAIS, CITIES, DOVER, MAP_H, MAP_W, OUTLINES, project, toPath, type LatLon } from "@/lib/geo";
 import { GLOSSARY, nextSteps } from "@/lib/guidance";
-import { addDays, buildNotice, langFor, LANGS, type Lang } from "@/lib/notice";
+import { addDays, buildNotice } from "@/lib/notice";
+import { editCutoff, loadSounds } from "@/lib/orders";
 import { chosenCarrier, isBlocking, overallStatus, runChecks, type Classifications } from "@/lib/rules";
+import { playAlert } from "@/lib/sound";
 import type { Booking, CarrierOption, CheckAction, CheckResult, OverallStatus, RateOption } from "@/lib/types";
+import { BookingEditor } from "./BookingEditor";
 import { CHECK_ICON, Card, Flash, PillTabs, SEVERITY, STATUS, SeverityTag, Term, fmtDate, gbp } from "./ui";
 
 export interface Computed {
@@ -31,51 +36,132 @@ export function compute(b: Booking, today: string, cls?: Classifications): Compu
   return { checks, status: overallStatus(checks), rec, selected: override ?? chosenOk ?? null, chosen };
 }
 
+/** Lets the chat confirm by message ("confirm booking") through the same flow as the button. */
+export interface ResultHandle { attemptConfirm: (force?: boolean) => Decision & { orderId?: string } }
+
+export interface OrderInfo { id: string; state: "editable" | "locked" | "cancelled" }
+
 interface Props {
   booking: Booking;
   today: string;
   classifications?: Classifications;
   onChange: (b: Booking) => void;
+  /** New bookings: save the confirmed booking and return its order number (existingId when re-confirming). */
+  onConfirmed?: (b: Booking, carrier: CarrierOption, warnings: number, existingId?: string) => string;
+  /** Saved orders: show the order banner; edits must pass the must-fix checks before onChange saves them. */
+  order?: OrderInfo;
+  onCancelOrder?: () => void;
+  /** Already saved as an order (e.g. a spreadsheet booking confirmed earlier): open as confirmed. */
+  saved?: { id: string; booking: Booking };
+  ref?: Ref<ResultHandle>;
 }
 
-type View = "overview" | "checks" | "details" | "notice";
+type View = "overview" | "checks" | "calc" | "details" | "notice";
 
-export function ResultView({ booking, today, classifications, onChange }: Props) {
+export function ResultView({ booking, today, classifications, onChange, onConfirmed, order, onCancelOrder, saved, ref }: Props) {
   const c = useMemo(() => compute(booking, today, classifications), [booking, today, classifications]);
   const [view, setView] = useState<View>("overview");
-  const [confirmedFlag, setConfirmed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [alert, setAlert] = useState<Decision | null>(null);
+  const [confirmed, setConfirmed] = useState<{ id: string; snapshot: string } | null>(() =>
+    saved ? { id: saved.id, snapshot: JSON.stringify({ ...saved.booking, id: booking.id }) } : null);
   const [notified, setNotified] = useState(false);
-  // a confirmation only stands while nothing blocks it; editing the booking into a blocked state undoes it
-  const confirmed = confirmedFlag && !blockReason(c);
+  const snapshot = JSON.stringify(booking);
+  // a confirmation stands only for the booking as it was confirmed; any later change needs confirming again
+  const confirmedNow = order ? order.state !== "cancelled" : !!confirmed && confirmed.snapshot === snapshot;
+  const changedSinceConfirm = !order && !!confirmed && confirmed.snapshot !== snapshot;
+
   const act = (a: CheckAction) => {
     if (a.kind === "switch-carrier") onChange({ ...booking, carrierOverride: a.carrier });
     if (a.kind === "add-pallets") onChange({ ...booking, pallets: a.pallets ?? booking.pallets });
   };
+
+  const attemptConfirm = (force = false): Decision & { orderId?: string } => {
+    const d = decide(c.checks, c.selected, force);
+    const sounds = loadSounds();
+    if (d.kind === "blocked") { if (sounds) playAlert("red"); setAlert(d); setView("overview"); setEditing(false); return d; }
+    if (d.kind === "warn") { if (sounds) playAlert("amber"); setAlert(d); return d; }
+    const warnings = c.checks.filter((r) => isBlocking(r, "amber")).length;
+    const id = onConfirmed?.(booking, c.selected!, warnings, confirmed?.id) ?? confirmed?.id ?? "DEMO";
+    setConfirmed({ id, snapshot });
+    setAlert(null);
+    return { ...d, orderId: id };
+  };
+  useImperativeHandle(ref, () => ({ attemptConfirm }));
+
+  const saveEdit = (b: Booking) => {
+    if (order) {
+      // a saved order must stay bookable: no must-fix items after the change
+      const nc = compute(b, today, classifications);
+      const d = decide(nc.checks, nc.selected, true);
+      if (d.kind === "blocked") {
+        if (loadSounds()) playAlert("red");
+        setEditError(d.message);
+        return;
+      }
+    }
+    setEditError(null);
+    setEditing(false);
+    setAlert(null);
+    onChange(b);
+  };
+
   const issues = c.checks.filter((r) => r.status !== "pass").length;
+  const readOnly = order ? order.state !== "editable" : false;
   return (
     <div className="space-y-4">
-      <StatusHero booking={booking} c={c} confirmed={confirmed} notified={notified} onConfirm={setConfirmed} onOpenNotice={() => setView("notice")} />
-      <PillTabs label="Booking sections" value={view} onChange={setView} tabs={[
-        { id: "overview", label: "Overview" },
-        { id: "checks", label: "All checks", badge: issues },
-        { id: "details", label: "Shipment details" },
-        { id: "notice", label: "Receiver notice" },
-      ]} />
-      {view === "overview" && (
-        <div className="space-y-4">
-          <FixList checks={c.checks} onAction={act} onSeeAll={() => setView("checks")} />
-          <CarrierPanel booking={booking} c={c} onSelect={(carrier) => onChange({ ...booking, carrierOverride: carrier })} />
-          <RouteMap booking={booking} carrier={c.selected} />
-        </div>
+      {order && <OrderBanner booking={booking} order={order} />}
+      <StatusHero booking={booking} c={c} confirmed={confirmedNow} confirmedId={order?.id ?? confirmed?.id} changedSinceConfirm={changedSinceConfirm}
+        notified={notified} alert={alert} isOrder={!!order} readOnly={readOnly} editing={editing}
+        onConfirm={() => attemptConfirm(false)} onForce={() => attemptConfirm(true)} onDismissAlert={() => setAlert(null)}
+        onEdit={() => { setEditing(true); setEditError(null); }} onCancelOrder={onCancelOrder} onOpenNotice={() => setView("notice")} />
+      {editing ? (
+        <>
+          {editError && <div role="alert" className="whitespace-pre-line rounded-xl border-l-4 border-red-600 bg-red-50 px-4 py-3 text-sm text-red-900">{editError}</div>}
+          <BookingEditor booking={booking} today={today} onSave={saveEdit} onCancel={() => { setEditing(false); setEditError(null); }} saveLabel={order ? "Save changes to order" : "Save changes"} />
+        </>
+      ) : (
+        <>
+          <PillTabs label="Booking sections" value={view} onChange={setView} tabs={[
+            { id: "overview", label: "Overview" },
+            { id: "checks", label: "All checks", badge: issues },
+            { id: "calc", label: "Calculator" },
+            { id: "details", label: "Shipment details" },
+            { id: "notice", label: "Receiver notice" },
+          ]} />
+          {view === "overview" && (
+            <div className="space-y-4">
+              <FixList checks={c.checks} onAction={readOnly ? () => {} : act} onSeeAll={() => setView("checks")} />
+              <CarrierPanel booking={booking} c={c} onSelect={(carrier) => !readOnly && onChange({ ...booking, carrierOverride: carrier })} />
+              <RouteMap booking={booking} carrier={c.selected} />
+            </div>
+          )}
+          {view === "checks" && <ChecksPanel checks={c.checks} onAction={readOnly ? () => {} : act} />}
+          {view === "calc" && <CalculatorPanel booking={booking} />}
+          {view === "details" && (
+            <div className="space-y-4">
+              <ShipmentCard booking={booking} />
+              <NextSteps status={c.status} checks={c.checks} />
+            </div>
+          )}
+          {view === "notice" && <NoticeCard booking={booking} c={c} confirmed={confirmedNow} onCopied={() => setNotified(true)} />}
+        </>
       )}
-      {view === "checks" && <ChecksPanel checks={c.checks} onAction={act} />}
-      {view === "details" && (
-        <div className="space-y-4">
-          <ShipmentCard booking={booking} />
-          <NextSteps status={c.status} checks={c.checks} />
-        </div>
-      )}
-      {view === "notice" && <NoticeCard booking={booking} c={c} onCopied={() => setNotified(true)} />}
+    </div>
+  );
+}
+
+function OrderBanner({ booking, order }: { booking: Booking; order: OrderInfo }) {
+  const cutoff = editCutoff(booking);
+  const tone = order.state === "editable" ? "border-lime-300 bg-lime-50 text-forest-950" : order.state === "locked" ? "border-slate-300 bg-slate-100 text-slate-800" : "border-red-200 bg-red-50 text-red-900";
+  return (
+    <div className={`flex flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 text-sm ${tone}`}>
+      <span className="font-mono font-semibold">{order.id}</span>
+      <span>·</span>
+      {order.state === "editable" && <span><b>You can still edit this order</b>{cutoff ? ` until the end of ${fmtDate(cutoff)} (the day before collection).` : "."}</span>}
+      {order.state === "locked" && <span><Lock className="mr-1 inline h-3.5 w-3.5" aria-hidden /><b>Locked.</b> The edit deadline ({cutoff ? fmtDate(cutoff) : "—"}) has passed. Contact the carrier to change it.</span>}
+      {order.state === "cancelled" && <span><b>Cancelled.</b> Kept here for your records.</span>}
     </div>
   );
 }
@@ -138,42 +224,43 @@ function Progress({ c, confirmed, notified }: { c: Computed; confirmed: boolean;
   );
 }
 
-function blockReason(c: Computed) {
-  const reds = c.checks.filter((r) => isBlocking(r, "red"));
-  if (reds.length) return `Fix or complete ${reds.length} "must fix" ${reds.length === 1 ? "check" : "checks"} first (${reds.map((r) => r.ruleId).join(", ")})`;
-  return !c.selected ? "No carrier can take this load yet" : null;
-}
-
 /** The verdict at a glance: checks gauge, status, key numbers, progress and the confirm action. */
-export function StatusHero({ booking, c, confirmed, notified, onConfirm, onOpenNotice }: {
-  booking: Booking; c: Computed; confirmed: boolean; notified: boolean; onConfirm: (v: boolean) => void; onOpenNotice: () => void;
+export function StatusHero({ booking, c, confirmed, confirmedId, changedSinceConfirm, notified, alert, isOrder, readOnly, editing,
+  onConfirm, onForce, onDismissAlert, onEdit, onCancelOrder, onOpenNotice }: {
+  booking: Booking; c: Computed; confirmed: boolean; confirmedId?: string; changedSinceConfirm: boolean; notified: boolean; alert: Decision | null;
+  isOrder: boolean; readOnly: boolean; editing: boolean;
+  onConfirm: () => void; onForce: () => void; onDismissAlert: () => void; onEdit: () => void; onCancelOrder?: () => void; onOpenNotice: () => void;
 }) {
-  const setConfirmed = onConfirm;
   const s = STATUS[c.status];
   const Icon = s.icon;
   const passed = c.checks.filter((r) => r.status === "pass").length;
-  const blocked = blockReason(c);
+  const reds = c.checks.filter((r) => isBlocking(r, "red")).length;
+  const ambers = c.checks.filter((r) => isBlocking(r, "amber")).length;
   const sum = summary(booking);
   const overLimit = !c.selected && c.chosen && sum.weightPerPallet != null && sum.weightPerPallet > c.chosen.maxKgPerPallet ? c.chosen : null;
+  const banned = c.checks.find((r) => r.ruleId === "R-06" && r.status === "fail");
 
-  if (confirmed && !blocked && c.selected) {
+  if (confirmed && !isOrder && !editing) {
+    const cutoff = editCutoff(booking);
     return (
       <section className="rise rounded-2xl border border-lime-300 bg-gradient-to-br from-lime-50 to-white p-5 shadow-sm" role="status">
         <div className="flex items-start gap-3">
           <BadgeCheck className="mt-0.5 h-6 w-6 shrink-0 text-forest-700" aria-hidden />
           <div className="min-w-0 text-sm text-slate-700">
-            <p className="text-base font-semibold text-forest-950">Booking confirmed <span className="font-normal text-slate-600">(demo)</span></p>
+            <p className="text-base font-semibold text-forest-950">Booking confirmed · <span className="font-mono">{confirmedId}</span></p>
             <p className="mt-1.5">
-              {sum.route} · {sum.cartons} cartons on {sum.pallets} pallets ({sum.grossWeight} kg) · <b className="text-forest-950">{c.selected.carrier}</b> {c.selected.service.toLowerCase()} · <b className="tnum text-forest-950">{gbp(c.selected.cost)}</b> · about {c.selected.days} days · ready {fmtDate(sum.readyDate)}
+              {sum.route} · {sum.cartons} cartons on {sum.pallets} pallets ({sum.grossWeight} kg) · <b className="text-forest-950">{c.selected?.carrier}</b> {c.selected?.service.toLowerCase()} · <b className="tnum text-forest-950">{gbp(c.selected?.cost)}</b> · about {c.selected?.days} days · ready {fmtDate(sum.readyDate)}
             </p>
-            <p className="mt-2 text-slate-600">Next: the carrier confirms a collection slot, you send the commercial invoice with the goods, and the export declaration is made before they leave the UK. Send the receiver the delivery notice so they know exactly what to count.</p>
-            {c.status === "Can dispatch after review" && <p className="mt-2 font-medium text-amber-800">Some &quot;check before shipping&quot; items are still open. Look at them before collection.</p>}
+            <p className="mt-2 text-slate-600">Saved to <b className="text-forest-950">My orders</b>{cutoff ? `. You can edit it there until the end of ${fmtDate(cutoff)}` : ""}. Next: the carrier confirms a collection slot, you send the commercial invoice with the goods, and the export declaration is made before they leave the UK.</p>
+            {c.status === "Can dispatch after review" && <p className="mt-2 font-medium text-amber-800">Booked with open warnings. Look at them before collection.</p>}
             <Progress c={c} confirmed={confirmed} notified={notified} />
             <div className="mt-3 flex flex-wrap gap-2">
               <button onClick={onOpenNotice} className="inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-forest-800">
                 <Mail className="h-3.5 w-3.5" aria-hidden />Open receiver notice
               </button>
-              <button onClick={() => setConfirmed(false)} className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-white">Edit booking</button>
+              <button onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+                <Pencil className="h-3.5 w-3.5" aria-hidden />Edit booking
+              </button>
             </div>
           </div>
         </div>
@@ -190,18 +277,62 @@ export function StatusHero({ booking, c, confirmed, notified, onConfirm, onOpenN
             <div className="flex items-center gap-1.5 text-lg font-semibold tracking-tight text-forest-950">
               <Icon className={`h-5 w-5 shrink-0 ${s.tone}`} aria-hidden /><Flash value={c.status}>{c.status}</Flash>
             </div>
-            <div className="text-sm text-slate-600 tnum">{passed} of 10 checks passed</div>
-            {blocked && <div className="mt-0.5 flex items-start gap-1 text-xs text-slate-600"><Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />{blocked}</div>}
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${reds ? "bg-red-600 text-white" : "bg-slate-100 text-slate-600"}`}><CircleX className="h-3 w-3" aria-hidden />{reds} must fix</span>
+              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${ambers ? "bg-amber-400 text-amber-950" : "bg-slate-100 text-slate-600"}`}><TriangleAlert className="h-3 w-3" aria-hidden />{ambers} warning{ambers === 1 ? "" : "s"}</span>
+              <span className="text-slate-600 tnum">{passed}/10 passed</span>
+            </div>
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <button disabled={!!blocked} onClick={() => setConfirmed(true)}
-            className="inline-flex items-center gap-2 rounded-xl bg-forest-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-forest-800 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none">
-            {blocked ? <Lock className="h-4 w-4" aria-hidden /> : <CircleCheck className="h-4 w-4 text-lime-400" aria-hidden />}
-            Confirm booking
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50">
+              <Pencil className="h-4 w-4" aria-hidden />{isOrder ? "Edit order" : "Edit details"}
+            </button>
+            {isOrder ? (
+              onCancelOrder && <button onClick={onCancelOrder} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50"><XCircle className="h-4 w-4" aria-hidden />Cancel order</button>
+            ) : (
+              <button onClick={onConfirm}
+                className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition ${reds || !c.selected ? "bg-slate-200 text-slate-700 hover:bg-slate-300" : "bg-forest-900 text-white hover:bg-forest-800"}`}>
+                {reds || !c.selected ? <Lock className="h-4 w-4" aria-hidden /> : <CircleCheck className="h-4 w-4 text-lime-400" aria-hidden />}
+                {changedSinceConfirm ? "Confirm changes" : "Confirm booking"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {banned && (
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl border-l-4 border-red-600 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
+          <Ban className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden />
+          <div><b>Prohibited goods: this shipment can&apos;t go as booked.</b> {banned.message}</div>
+        </div>
+      )}
+
+      {alert && alert.kind !== "ok" && (
+        <div role="alert" className={`shake mt-4 rounded-xl border-l-4 px-4 py-3 text-sm ${alert.kind === "blocked" ? "border-red-600 bg-red-50 text-red-950" : "border-amber-400 bg-amber-50 text-amber-950"}`}>
+          <div className="flex items-start gap-2.5">
+            {alert.kind === "blocked" ? <CircleX className="mt-0.5 h-5 w-5 shrink-0 text-red-600" aria-hidden /> : <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden />}
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">{alert.kind === "blocked" ? "Can't confirm yet: fix the must-fix items first" : "Warnings are still open"}</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {alert.issues.map((r) => <li key={r.ruleId}><b>{RULE_NAMES[r.ruleId]}</b> ({r.ruleId}): {r.status === "cannot-check" ? "details missing" : r.message}</li>)}
+                {alert.kind === "blocked" && !alert.issues.length && <li>No carrier on this route can take the weight per pallet.</li>}
+              </ul>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {alert.kind === "warn" && (
+                  <button onClick={onForce} className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-400">Confirm anyway</button>
+                )}
+                <button onClick={onDismissAlert} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+                  {alert.kind === "blocked" ? "OK, show me the fixes" : "Review first"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {changedSinceConfirm && <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900 ring-1 ring-sky-100">You changed this booking after confirming {confirmedId}. Confirm again to update the saved order.</p>}
 
       <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Carrier" value={c.selected?.carrier ?? overLimit?.carrier ?? "—"} alert={!!overLimit}
@@ -226,15 +357,15 @@ function Stat({ label, value, sub, alert }: { label: string; value: React.ReactN
 }
 
 const GROUPS: { kind: "red" | "amber" | "unknown"; title: string; hint: string; tone: string; iconTone: string }[] = [
-  { kind: "red", title: SEVERITY.red.label, hint: SEVERITY.red.hint, tone: "border-red-100 bg-red-50/60", iconTone: "text-red-600" },
-  { kind: "amber", title: SEVERITY.amber.label, hint: SEVERITY.amber.hint, tone: "border-amber-100 bg-amber-50/60", iconTone: "text-amber-500" },
-  { kind: "unknown", title: "Waiting for details", hint: "Can't run yet", tone: "border-slate-200 bg-slate-50", iconTone: "text-slate-500" },
+  { kind: "red", title: SEVERITY.red.label, hint: SEVERITY.red.hint, tone: "border-red-200 border-l-red-600 bg-red-50/70", iconTone: "text-red-600" },
+  { kind: "amber", title: SEVERITY.amber.label, hint: SEVERITY.amber.hint, tone: "border-amber-200 border-l-amber-400 bg-amber-50/70", iconTone: "text-amber-500" },
+  { kind: "unknown", title: "Waiting for details", hint: "Can't run yet", tone: "border-slate-200 border-l-slate-300 bg-slate-50", iconTone: "text-slate-500" },
 ];
 
 function CheckItem({ r, group, onAction }: { r: CheckResult; group: (typeof GROUPS)[number]; onAction: (a: CheckAction) => void }) {
   const Icon = CHECK_ICON[group.kind];
   return (
-    <li className={`rise rounded-xl border px-4 py-3 ${group.tone}`}>
+    <li className={`rise rounded-xl border border-l-4 px-4 py-3 ${group.tone}`}>
       <div className="flex gap-3">
         <Icon className={`mt-0.5 h-[18px] w-[18px] shrink-0 ${group.iconTone}`} aria-label={group.title} />
         <div className="min-w-0 flex-1 text-sm">
@@ -314,7 +445,7 @@ export function ChecksPanel({ checks, onAction }: { checks: CheckResult[]; onAct
           </div>
         )}
         <p className="border-t border-slate-100 pt-3 text-xs text-slate-600">
-          <b className="text-slate-800">Must fix</b> = rulebook severity Red: the booking can&apos;t be confirmed until it passes. <b className="text-slate-800">Check before shipping</b> = Amber: you can still ship, but it may cause delays.
+          <b className="text-red-700">Must fix</b> = rulebook severity Red, a serious problem: the booking can&apos;t be confirmed until it passes. <b className="text-amber-800">Warning</b> = Amber: you can still ship, but it may cause delays or a refused delivery.
         </p>
       </div>
     </Card>
@@ -580,22 +711,21 @@ export function NextSteps({ status, checks }: { status: OverallStatus; checks: C
   );
 }
 
-/** Advance notice for the receiving site, in the destination's language. */
-function NoticeCard({ booking, c, onCopied }: { booking: Booking; c: Computed; onCopied: () => void }) {
-  const [lang, setLang] = useState<Lang>(() => langFor(booking.destCountry));
+/** Advance notice for the receiving site: what's coming and what to count. */
+function NoticeCard({ booking, c, confirmed, onCopied }: { booking: Booking; c: Computed; confirmed: boolean; onCopied: () => void }) {
   const [copied, setCopied] = useState(false);
-  const blocked = blockReason(c);
+  const blocked = c.checks.some((r) => isBlocking(r, "red")) || !c.selected;
   if (blocked || !c.selected) {
     return (
       <Card title="Receiver notice" icon={Mail}>
         <div className="flex items-start gap-3 text-sm text-slate-700">
           <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden />
-          <p>The delivery notice for the receiver is ready once every &quot;must fix&quot; check passes and a carrier is chosen. <span className="text-slate-600">({blocked})</span></p>
+          <p>The delivery notice for the receiver is ready once every &quot;must fix&quot; check passes and a carrier is chosen.</p>
         </div>
       </Card>
     );
   }
-  const n = buildNotice(booking, c.selected, lang);
+  const n = buildNotice(booking, c.selected);
   const copy = async () => {
     try { await navigator.clipboard.writeText(n.text); setCopied(true); onCopied(); setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
   };
@@ -605,12 +735,11 @@ function NoticeCard({ booking, c, onCopied }: { booking: Booking; c: Computed; o
         {copied ? <Check className="h-3.5 w-3.5 text-lime-400" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}{copied ? "Copied" : "Copy text"}
       </button>
     }>
-      <p className="mb-3 text-sm text-slate-700">Send this to the receiving site so they know exactly what&apos;s coming and can count it on arrival. Language follows the destination; switch if needed.</p>
-      <PillTabs label="Notice language" value={lang} onChange={setLang} tabs={LANGS.map((l) => ({ id: l.id, label: l.label }))} />
-      <article lang={lang} className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-5">
+      <p className="mb-3 text-sm text-slate-700">Send this to the receiving site so they know exactly what&apos;s coming and can count it on arrival.{!confirmed && " Confirm the booking first, then send it."}</p>
+      <article className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
         <h3 className="text-lg font-semibold tracking-tight text-forest-950">{n.title}</h3>
         <p className="mt-1 text-sm text-slate-700">{n.intro}</p>
-        {n.appointmentWarning && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 ring-1 ring-amber-200">{n.fields.at(-1)![0]}: {n.fields.at(-1)![1]}</p>}
+        {n.appointmentWarning && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 ring-1 ring-amber-200">Delivery appointment: not booked yet. Please arrange a delivery slot.</p>}
         <dl className="mt-4 grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2">
           {n.fields.map(([k, v]) => (
             <div key={k} className="min-w-0"><dt className="text-xs text-slate-600">{k}</dt><dd className="font-medium text-forest-950 tnum">{v}</dd></div>
@@ -618,14 +747,45 @@ function NoticeCard({ booking, c, onCopied }: { booking: Booking; c: Computed; o
         </dl>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[420px] text-left text-sm tnum">
-            <caption className="mb-1 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">{n.contentsLabel}</caption>
-            <thead className="text-xs text-slate-600"><tr>{n.itemHead.map((h, i) => <th key={h} className={`py-1.5 pr-3 font-medium ${i > 1 ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
+            <caption className="mb-1 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">Contents</caption>
+            <thead className="text-xs text-slate-600"><tr>{["SKU", "Description", "Units", "Cartons"].map((h, i) => <th key={h} className={`py-1.5 pr-3 font-medium ${i > 1 ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
             <tbody>{n.items.map((row) => (
               <tr key={row[0]} className="border-t border-slate-200">{row.map((cell, i) => <td key={i} className={`py-1.5 pr-3 ${i === 0 ? "font-mono text-xs" : ""} ${i > 1 ? "text-right" : ""}`}>{cell}</td>)}</tr>
             ))}</tbody>
           </table>
         </div>
       </article>
+    </Card>
+  );
+}
+
+/** Every rule's arithmetic, shown step by step. Same fixed formulas as the checks: the AI never calculates. */
+function CalculatorPanel({ booking }: { booking: Booking }) {
+  const ws = workings(booking);
+  const tone = { pass: "bg-lime-100 text-forest-800", fail: "bg-red-600 text-white", "cannot-check": "bg-slate-100 text-slate-600" } as const;
+  return (
+    <Card title="Calculator" icon={Calculator} aside={<span className="text-xs text-slate-600">Fixed formulas from the rulebook</span>}>
+      <p className="mb-4 text-sm text-slate-700">Every number behind the checks and the carrier price, worked out with the case&apos;s formulas. The AI only reads your messages; it never does this maths.</p>
+      <ul className="space-y-3">
+        {ws.map((w) => (
+          <li key={w.ruleId} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-forest-950">{w.title}</span>
+              {w.ruleId.startsWith("R-") && <span className="font-mono text-[11px] text-slate-600">{w.ruleId}</span>}
+              <span className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold uppercase ${tone[w.verdict]}`}>
+                {w.verdict === "pass" ? (w.ruleId === "Cost" ? "Best price" : "Pass") : w.verdict === "fail" ? "Fail" : "Waiting"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-600">{w.formula}</p>
+            {w.steps.length > 0 && (
+              <ol className="mt-2 space-y-0.5 rounded-lg bg-white px-3 py-2 font-mono text-xs text-slate-800 ring-1 ring-slate-200">
+                {w.steps.map((st) => <li key={st}>{st}</li>)}
+              </ol>
+            )}
+            <p className="mt-2 text-sm font-semibold text-forest-950 tnum">{w.result}</p>
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }

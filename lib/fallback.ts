@@ -65,9 +65,9 @@ export function basicExtract(message: string, booking: Booking, today: string): 
   m = message.match(new RegExp(String.raw`(\d+)\s*(?:cartons?|boxes)(?:\s+of\s+${PHRASE})?`, "i"));
   if (m) { item.cartons = Number(m[1]); if (m[2]) item.description = m[2].trim(); }
   // "sending 1080 ceramic mugs" -> quantity and description
-  m = message.match(new RegExp(String.raw`\b(?:send|sending|ship|shipping|export|exporting|got|have)\s+(\d+)\s+${PHRASE}`, "i"));
+  m = message.match(new RegExp(String.raw`(?:\b(?:send|sending|ship|shipping|export|exporting|got|have)\s+|^\s*)(\d[\d,]*)\s+${PHRASE}`, "i"));
   if (m && !/^(cartons?|boxes|pallets?|units?|pieces|pcs|kg)\b/i.test(m[2])) {
-    item.quantity = Number(m[1]);
+    item.quantity = Number(m[1].replace(/,/g, ""));
     item.description ??= m[2].trim();
   }
 
@@ -100,6 +100,11 @@ export function basicExtract(message: string, booking: Booking, today: string): 
   if (/\b(no appointment|appointment (is )?not booked|haven'?t booked|not booked|without (an )?appointment)\b/.test(t)) b.appointmentBooked = "No";
   else if (/\bappointment\b/.test(t) && /\b(booked|yes|have|got|confirmed)\b/.test(t)) b.appointmentBooked = "Yes";
 
+  const seller = message.match(/\b(?:seller(?:\s+name)?|company(?:\s+name)?|business(?:\s+name)?)\s*(?:is|:|=)\s*([A-Z][\w&.'-]*(?:\s+[A-Z][\w&.'-]*){0,4})/i);
+  if (seller) b.sellerName = seller[1].split(/[.,;](?:\s|$)/)[0].trim(); // stop at the end of the sentence
+  const sku = message.match(/\b(?:sku|product code|item code)\s*(?:is|:|=)?\s*([A-Z0-9][A-Z0-9-]{1,30})\b/i);
+  if (sku) item.sku = sku[1].toUpperCase();
+
   const date = parseLooseDate(message, today);
   if (date) b.readyDate = date;
 
@@ -107,7 +112,8 @@ export function basicExtract(message: string, booking: Booking, today: string): 
   if (Object.keys(item).length) {
     // basic mode tracks one item: update the last item, or create one
     const target = booking.items.at(-1);
-    ex.patch.upsertItems = [target ? { ...item, sku: target.sku, description: target.description || item.description } : item];
+    // a stated SKU renames the item (matched by description); otherwise keep its current SKU
+    ex.patch.upsertItems = [target ? { ...item, sku: item.sku ?? target.sku, description: target.description || item.description } : item];
   }
   return ex;
 }

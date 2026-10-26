@@ -1,5 +1,5 @@
 "use client";
-import { ArrowRight, Boxes, ChevronRight, Download, FileSpreadsheet, Info, LayoutList, Package, PoundSterling, RotateCcw, Truck, Upload } from "lucide-react";
+import { ArrowRight, Ban, BadgeCheck, Boxes, ChevronRight, Download, FileSpreadsheet, Info, LayoutList, Package, PoundSterling, RotateCcw, Truck, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { summary } from "@/lib/booking";
 import { parseArrayBuffer } from "@/lib/excel";
@@ -7,6 +7,7 @@ import { scanDescription } from "@/lib/prohibited";
 import type { Classifications } from "@/lib/rules";
 import type { Booking, OverallStatus } from "@/lib/types";
 import { compute, ResultView } from "./ResultView";
+import { useStore } from "./store";
 import { STATUS, StatusPill, gbp, todayISO } from "./ui";
 
 const SAMPLE_URL = "/samples/test_bookings.xlsx";
@@ -74,7 +75,15 @@ export function UploadPanel() {
     } finally { setBusy(false); }
   };
 
+  const store = useStore();
   const computed = useMemo(() => data?.bookings.map((b) => compute(b, data.today, data.cls)) ?? [], [data]);
+  // "ready" = no must-fix and no warnings: safe to save in one go; anything with warnings is confirmed one by one
+  const readyToSave = data ? data.bookings.map((b, i) => ({ b, c: computed[i] })).filter(({ b, c }) => c.status === "Ready to dispatch" && c.selected && !store.orderForBooking(b.id)) : [];
+  const [bulkNote, setBulkNote] = useState<string | null>(null);
+  const saveAllReady = () => {
+    for (const { b, c } of readyToSave) store.confirmOrder(b, c.selected!, 0);
+    setBulkNote(`Saved ${readyToSave.length} booking${readyToSave.length === 1 ? "" : "s"} to My orders: ${readyToSave.map(({ b }) => b.id).join(", ")}.`);
+  };
   const counts = computed.reduce<Record<string, number>>((a, c) => ({ ...a, [c.status]: (a[c.status] ?? 0) + 1 }), {});
   const totals = useMemo(() => {
     const sums = (data?.bookings ?? []).map(summary);
@@ -167,6 +176,18 @@ export function UploadPanel() {
         ))}
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-lime-200 bg-lime-50/70 px-4 py-3 text-sm">
+        <BadgeCheck className="h-5 w-5 shrink-0 text-forest-700" aria-hidden />
+        <span className="min-w-0 flex-1 text-forest-950">
+          {bulkNote ?? (readyToSave.length
+            ? `${readyToSave.length} booking${readyToSave.length === 1 ? " is" : "s are"} ready with no issues. Save them to My orders in one go, or open each booking to edit, pick a carrier and confirm it.`
+            : "Open each booking to fix it, pick a carrier, edit details and confirm it. Bookings with warnings are confirmed one by one.")}
+        </span>
+        {readyToSave.length > 0 && (
+          <button onClick={saveAllReady} className="rounded-lg bg-forest-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-forest-800">Save all {readyToSave.length} ready</button>
+        )}
+      </div>
+
       <div role="group" className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur sm:grid-cols-4" aria-label="Totals across the file">
         <Total icon={Boxes} label="Pallets" value={totals.pallets.toLocaleString("en-GB")} />
         <Total icon={Package} label="Cartons" value={totals.cartons.toLocaleString("en-GB")} />
@@ -201,6 +222,8 @@ export function UploadPanel() {
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-[13px] font-semibold text-forest-950">{b.id}</span>
                       {b !== data.original[i] && <span className="rounded bg-sky-100 px-1 text-[10px] font-semibold text-sky-800">edited</span>}
+                      {store.orderForBooking(b.id) && <span className="rounded bg-lime-100 px-1 text-[10px] font-semibold text-forest-800">saved</span>}
+                      {c.checks.some((r) => r.ruleId === "R-06" && r.status === "fail") && <span className="inline-flex items-center gap-0.5 rounded bg-red-600 px-1 text-[10px] font-bold text-white" title="Prohibited goods"><Ban className="h-2.5 w-2.5" aria-hidden />banned goods</span>}
                       <span className="ml-auto"><StatusPill status={c.status} short /></span>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -225,7 +248,7 @@ export function UploadPanel() {
 
         <div ref={detail} className="scroll-mt-24">
           {current && (
-            <div key={current.b.id} className="space-y-3">
+            <div key={`${current.b.id}:${store.orderForBooking(current.b.id)?.id ?? ""}`} className="space-y-3">
               {current.b !== data.original[current.i] && (
                 <div className="flex items-center justify-between rounded-xl bg-sky-50 px-4 py-2.5 text-xs text-sky-900 ring-1 ring-sky-100">
                   <span>You changed this booking here. The file itself is unchanged.</span>
@@ -234,7 +257,9 @@ export function UploadPanel() {
                   </button>
                 </div>
               )}
-              <ResultView booking={current.b} today={data.today} classifications={data.cls} onChange={(nb) => update(current.i, nb)} />
+              <ResultView booking={current.b} today={data.today} classifications={data.cls} onChange={(nb) => update(current.i, nb)}
+                saved={(() => { const o = store.orderForBooking(current.b.id); return o ? { id: o.id, booking: o.booking } : undefined; })()}
+                onConfirmed={(b, carrier, warnings, existingId) => store.confirmOrder(b, carrier, warnings, existingId)} />
             </div>
           )}
         </div>

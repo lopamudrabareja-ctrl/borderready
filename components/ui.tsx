@@ -51,8 +51,8 @@ export const CHECK_ICON = { red: CircleX, amber: TriangleAlert, unknown: CircleH
 
 /** Plain-English severity names; the rulebook's Red / Amber stays visible as a small tag. */
 export const SEVERITY = {
-  red: { label: "Must fix", hint: "Blocks the booking", tag: "Red", tagCls: "bg-red-600 text-white" },
-  amber: { label: "Check before shipping", hint: "You can still ship", tag: "Amber", tagCls: "bg-amber-400 text-amber-950" },
+  red: { label: "Must fix", hint: "Serious: blocks the booking", tag: "Red", tagCls: "bg-red-600 text-white" },
+  amber: { label: "Warning", hint: "Check before shipping: you can still ship", tag: "Amber", tagCls: "bg-amber-400 text-amber-950" },
 } as const;
 
 export function SeverityTag({ severity }: { severity: "red" | "amber" }) {

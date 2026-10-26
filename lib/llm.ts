@@ -13,7 +13,7 @@ const MODEL = () => process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 // Extraction needs little reasoning. Lite models accept MINIMAL; larger Flash models reject it, so use LOW there.
 const THINKING = () => ({ thinkingLevel: MODEL().includes("lite") ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW });
 
-const ATTEMPT_MS = 8_000; // per request
+const ATTEMPT_MS = 13_000; // per request: the free tier is sometimes slow, so allow one long attempt
 const TOTAL_MS = 15_000; // across retries, then fall back to basic mode
 let client: GoogleGenAI | null = null;
 

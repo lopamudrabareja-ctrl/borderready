@@ -90,6 +90,23 @@ describe("15 chat flow in basic mode", () => {
   });
 });
 
+describe("questions from the case template", () => {
+  it("asks for the seller name and an optional SKU, and accepts both", () => {
+    const [t1, t2] = play(FIRST, "Seller is Northfield Goods. SKU MUG-01");
+    expect(t1.reply).toMatch(/business name/);
+    expect(t1.reply).toMatch(/SKU \/ product code \(optional\)/);
+    expect(t2.booking.sellerName).toBe("Northfield Goods");
+    expect(t2.booking.items).toHaveLength(1);
+    expect(t2.booking.items[0].sku).toBe("MUG-01");
+    expect(t2.reply).not.toMatch(/business name/);
+  });
+  it("doesn't hold up a complete booking for the optional SKU", () => {
+    const [, , t3] = play(FIRST, DETAILS + " Seller is Northfield Goods.", "3 pallets");
+    expect(t3.reply).toContain("That's everything I need");
+    expect(t3.reply).toContain("confirm booking");
+  });
+});
+
 describe("runTurn with an LLM-style extraction", () => {
   it("uses classifications for ambiguous items", () => {
     const ex = {
@@ -109,4 +126,11 @@ describe("parseLooseDate", () => {
     ["ready 10-11-2026", "2026-11-10"], ["10/11/2026", "2026-11-10"], ["2026-11-10", "2026-11-10"],
     ["today", TODAY], ["tomorrow", "2026-10-27"], ["5 November", "2026-11-05"], ["3rd Jan", "2027-01-03"],
   ])("%s", (text, expected) => expect(parseLooseDate(text, TODAY)).toBe(expected));
+});
+
+describe("basic mode reads a booking that starts with the quantity", () => {
+  it("1080 ceramic mugs from …", () => {
+    const [t] = play("1080 ceramic mugs from Manchester to a business address in Frankfurt: SKU MUG-01, 12 per carton, 90 cartons, £5 each");
+    expect(t.booking.items[0]).toMatchObject({ sku: "MUG-01", description: "ceramic mugs", quantity: 1080, unitsPerCarton: 12, cartons: 90, unitPrice: 5 });
+  });
 });

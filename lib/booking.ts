@@ -46,8 +46,11 @@ export function applyPatch(b: Booking, patch: BookingPatch): Booking {
     next.destCity = canon(all, p.destCity);
     next.destCountry = countryForCity(next.destCity);
   }
+  // match by SKU, then by description; a new SKU for the only unnamed item renames it instead of adding an item
   const find = (key: string | undefined, desc: string | undefined) =>
-    next.items.find((i) => (key && i.sku.toLowerCase() === key.toLowerCase()) || (!key && desc && i.description.toLowerCase() === desc.toLowerCase()));
+    next.items.find((i) => key && i.sku.toLowerCase() === key.toLowerCase())
+    ?? next.items.find((i) => desc && i.description.toLowerCase() === desc.toLowerCase())
+    ?? (key && !desc && next.items.length === 1 && isGeneratedSku(next.items[0].sku) ? next.items[0] : undefined);
   for (const u of patch.upsertItems ?? []) {
     const existing = find(u.sku, u.description);
     if (existing) {
@@ -92,12 +95,16 @@ export function effectiveBooking(b: Booking): Booking {
   return e;
 }
 
-export interface Missing { field: string; label: string; group: "shipment" | "item"; sku?: string; itemName?: string }
+export interface Missing { field: string; label: string; group: "shipment" | "item"; sku?: string; itemName?: string; optional?: boolean }
+
+/** SKUs we generate when the seller hasn't given one (chat "ITEM-1", spreadsheet "BK-001-ITEM-1"). */
+export const isGeneratedSku = (sku: string) => /(^|-)ITEM-\d+$/.test(sku);
 
 export function missingFields(b: Booking): Missing[] {
   const e = effectiveBooking(b);
   const m: Missing[] = [];
   const s = (field: string, label: string) => m.push({ field, label, group: "shipment" });
+  if (!e.sellerName) s("sellerName", "your business name (the seller)");
   if (!e.originCity) s("originCity", "origin city (London, Manchester, Birmingham or Leeds)");
   if (!e.destCity) s("destCity", "destination city (Berlin, Frankfurt, Hamburg, Paris, Lyon, Amsterdam or Rotterdam)");
   if (!e.destType) s("destType", "destination type (Warehouse or Business address)");
@@ -110,7 +117,7 @@ export function missingFields(b: Booking): Missing[] {
   if (e.destType === "Warehouse" && !e.appointmentBooked) s("appointmentBooked", "whether a delivery appointment is booked");
   if (!e.items.length) s("items", "item details");
   for (const i of e.items) {
-    const it = (field: string, label: string) => m.push({ field, label, group: "item", sku: i.sku, itemName: i.description || i.sku });
+    const it = (field: string, label: string, optional?: boolean) => m.push({ field, label, group: "item", sku: i.sku, itemName: i.description || i.sku, optional });
     if (!i.description) it("description", "description");
     if (i.quantity == null) it("quantity", "quantity");
     if (i.unitPrice == null) it("unitPrice", "unit price (£)");
@@ -118,6 +125,7 @@ export function missingFields(b: Booking): Missing[] {
     if (i.unitWeight == null) it("unitWeight", "unit weight (kg)");
     if (!i.hsCode) it("hsCode", "HS code");
     if (!i.countryOfOrigin) it("countryOfOrigin", "country of origin");
+    if (isGeneratedSku(i.sku)) it("sku", "SKU / product code (optional)", true);
   }
   return m;
 }

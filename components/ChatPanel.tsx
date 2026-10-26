@@ -1,47 +1,51 @@
 "use client";
-import { ListChecks, Mail, MessageSquare, Mic, RotateCcw, Send, Sparkles, Square, Truck, Volume2, VolumeX } from "lucide-react";
+import { ListChecks, Mail, MessageSquare, Pencil, RotateCcw, Send, Sparkles, Truck, UserRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { emptyBooking } from "@/lib/booking";
-import { emptyMeta, type ChatMeta } from "@/lib/chat";
+import { emptyBooking, missingFields } from "@/lib/booking";
+import { describeChanges, emptyMeta, type ChatMeta } from "@/lib/chat";
+import { confirmIntent } from "@/lib/confirm";
+import { editCutoff } from "@/lib/orders";
+import { isBlocking, runChecks } from "@/lib/rules";
 import type { Booking } from "@/lib/types";
-import { ResultView } from "./ResultView";
-import { todayISO } from "./ui";
+import { ResultView, type ResultHandle } from "./ResultView";
+import { useStore } from "./store";
+import { fmtDate, todayISO } from "./ui";
 
 interface Msg { role: "user" | "assistant"; text: string }
 
-// Minimal typing for the browser's built-in speech recognition (Chrome, Edge, Safari).
-interface Recognition {
-  lang: string; interimResults: boolean; continuous: boolean;
-  onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
-  onerror: ((e: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void; stop(): void; abort(): void;
-}
-
-const SILENCE_MS = 4000; // stop and send after this long without new words
-const FIRST_WORDS_MS = 8000; // ...or this long if nothing was said at all
-const MAX_RESTARTS = 6; // browsers end long sessions on their own; reopen this many times
-type RecognitionCtor = new () => Recognition;
-const recognitionCtor = (): RecognitionCtor | null => {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as { SpeechRecognition?: RecognitionCtor; webkitSpeechRecognition?: RecognitionCtor };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-};
-
 const STARTERS = [
   { label: "Mugs to a Frankfurt warehouse", text: "I need to send 90 cartons of ceramic mugs from Manchester to a warehouse in Frankfurt." },
-  { label: "Full booking in one go", text: "1080 ceramic mugs from Manchester to a business address in Frankfurt: 12 per carton, 90 cartons, £5 each, 0.5 kg each, made in China, HS 691200. 620 kg on 3 pallets, ready 10-11-2026, cheapest please." },
+  { label: "Full booking in one go", text: "1080 ceramic mugs from Manchester to a business address in Frankfurt: SKU MUG-01, 12 per carton, 90 cartons, £5 each, 0.5 kg each, made in China, HS 691200. 620 kg on 3 pallets, ready 10-11-2026, cheapest please." },
   { label: "Something that can't ship", text: "50 cartons of lithium power bank from London to a shop in Paris" },
 ];
 
-const FOLLOW_UPS = ["make it 2 pallets", "actually the total weight is 1600 kg", "I don't know the HS code"];
-
 const WELCOME: Msg = {
   role: "assistant",
-  text: "Hi! Tell me about your shipment in your own words: what you're sending, where from and to, and anything else you know. I'll only ask for what's missing, and check everything as we go.",
+  text: "Hi! Tell me about your shipment in your own words: what you're sending, where from and to, and anything else you know. I'll only ask for what's missing, check everything as we go, and you can change any detail at any time.",
 };
 
+/** Quick replies for whatever the booking still needs, so the seller can tap instead of typing. */
+function suggestions(b: Booking, meta: ChatMeta, today: string): string[] {
+  const unknown = new Set(meta.unknown);
+  const miss = missingFields(b).filter((m) => !unknown.has(m.sku ? `${m.sku}.${m.field}` : m.field));
+  const has = (f: string) => miss.some((m) => m.field === f);
+  const out: string[] = [];
+  if (has("priority")) out.push("Cheapest", "Fastest", "Most reliable", "Balanced");
+  else if (has("destType")) out.push("It's a warehouse", "It's a business address");
+  else if (has("appointmentBooked")) out.push("Delivery appointment is booked", "No appointment booked yet");
+  else if (has("readyDate")) out.push("Ready today", "Ready tomorrow");
+  if (has("hsCode")) out.push("I don't know the HS code");
+  if (has("countryOfOrigin")) out.push("Made in China", "Made in the UK");
+  if (!miss.some((m) => !m.optional)) {
+    const reds = runChecks(b, today).some((r) => isBlocking(r, "red"));
+    if (!reds) out.unshift("Confirm booking");
+    if (b.pallets) out.push(`Make it ${b.pallets + 1} pallets`);
+  }
+  return out.slice(0, 5);
+}
+
 export function ChatPanel() {
+  const store = useStore();
   const [messages, setMessages] = useState<Msg[]>([WELCOME]);
   const [booking, setBooking] = useState<Booking>(() => emptyBooking());
   const [meta, setMeta] = useState<ChatMeta>(() => emptyMeta());
@@ -49,157 +53,70 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [basic, setBasic] = useState(false);
-  const [voiceOk, setVoiceOk] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [speak, setSpeak] = useState(false);
-  const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const log = useRef<HTMLDivElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
-  const rec = useRef<Recognition | null>(null);
-  // dictation state lives in refs so restarts and timers see the latest values
-  const wantListen = useRef(false);
-  const committed = useRef("");
-  const interim = useRef("");
-  const restarts = useRef(0);
-  const silence = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sendRef = useRef<(text: string) => void>(() => {});
+  const result = useRef<ResultHandle>(null);
   const classifications = useMemo(() => new Map(Object.entries(meta.classifications)), [meta.classifications]);
+  const started = messages.length > 1;
 
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight, behavior: "smooth" }); }, [messages, busy]);
-  // feature-detect after mount so the server render and the first client render match
-  useEffect(() => {
-    setVoiceOk(!!recognitionCtor());
-    return () => { wantListen.current = false; rec.current?.abort(); if (silence.current) clearTimeout(silence.current); };
-  }, []);
 
-  const say = (text: string) => {
-    if (!speak || typeof window === "undefined" || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text.replace(/[•→·]/g, " "));
-    u.lang = "en-GB";
-    window.speechSynthesis.speak(u);
+  const say = (text: string) => setMessages((m) => [...m, { role: "assistant", text }]);
+
+  const confirmByMessage = (force: boolean) => {
+    if (!started || !result.current) { say("There's nothing to confirm yet. Tell me about the shipment first."); return; }
+    const d = result.current.attemptConfirm(force);
+    if (d.kind !== "ok") { say(d.message); return; }
+    const cutoff = editCutoff(booking);
+    say(`Done! Booking ${d.orderId} is confirmed and saved to My orders.${cutoff ? ` You can still edit it until the end of ${fmtDate(cutoff)}.` : ""} The "Receiver notice" tab has a delivery notice you can send to the receiving site.`);
   };
 
   const send = async (text: string) => {
     const message = text.trim();
     if (!message || busy) return;
     const now = todayISO(); // read at send time so R-10 always uses the real date
-    setToday(now);
     setInput("");
     setMessages((m) => [...m, { role: "user", text: message }]);
+    const intent = confirmIntent(message);
+    if (intent) { setToday(today ?? now); confirmByMessage(intent === "force"); return; }
+    setToday(now);
     setBusy(true);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, booking, meta, today: now }),
+        // the seller's business name comes from their profile, so the chat doesn't need to ask for it
+        body: JSON.stringify({ message, booking: booking.sellerName ? booking : { ...booking, sellerName: store.profile.businessName || null }, meta, today: now }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Something went wrong.");
       setBooking(data.booking);
       setMeta(data.meta);
       setBasic(data.mode === "basic");
-      setMessages((m) => [...m, { role: "assistant", text: data.reply }]);
       say(data.reply);
     } catch (e) {
-      setMessages((m) => [...m, { role: "assistant", text: `${(e as Error).message || "I couldn't reach the server."} Your booking so far is kept, so you can try again.` }]);
+      say(`${(e as Error).message || "I couldn't reach the server."} Your booking so far is kept, so you can try again.`);
     } finally {
       setBusy(false);
       field.current?.focus();
     }
   };
-  sendRef.current = send;
 
-  const armSilence = (ms: number) => {
-    if (silence.current) clearTimeout(silence.current);
-    silence.current = setTimeout(() => stopListening(), ms);
-  };
-
-  const finishListening = () => {
-    if (silence.current) clearTimeout(silence.current);
-    setListening(false);
-    const text = `${committed.current} ${interim.current}`.replace(/\s+/g, " ").trim();
-    committed.current = "";
-    interim.current = "";
-    if (text) sendRef.current(text);
-  };
-
-  const stopListening = () => {
-    wantListen.current = false;
-    if (rec.current) rec.current.stop(); // onend sends what was heard
-    else finishListening();
-  };
-
-  const startSession = () => {
-    const Ctor = recognitionCtor();
-    if (!Ctor) return;
-    const r = new Ctor();
-    r.lang = "en-GB";
-    r.interimResults = true;
-    r.continuous = true; // keep listening through pauses until the seller stops or goes quiet
-    r.onresult = (e) => {
-      if (rec.current !== r) return; // ignore a session we've already moved on from
-      let live = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i];
-        if (res.isFinal) committed.current = `${committed.current} ${res[0].transcript}`;
-        else live += res[0].transcript;
-      }
-      interim.current = live;
-      setInput(`${committed.current} ${live}`.replace(/\s+/g, " ").trim());
-      armSilence(SILENCE_MS);
-    };
-    r.onerror = (e) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        wantListen.current = false;
-        setVoiceNote("Microphone is blocked. Allow it in your browser's site settings, or type instead.");
-      } else if (e.error === "audio-capture") {
-        wantListen.current = false;
-        setVoiceNote("No microphone found. Check it's connected, or type instead.");
-      } else if (e.error === "network") {
-        wantListen.current = false;
-        setVoiceNote("Voice needs an internet connection in this browser. Type instead, or try again.");
-      }
-      // "no-speech" and "aborted" are handled by onend
-    };
-    r.onend = () => {
-      if (rec.current !== r) return;
-      rec.current = null;
-      if (wantListen.current && restarts.current < MAX_RESTARTS) {
-        restarts.current += 1;
-        if (interim.current) { committed.current = `${committed.current} ${interim.current}`; interim.current = ""; }
-        startSession(); // the browser ended the session early: carry on where we were
-      } else {
-        finishListening();
-      }
-    };
-    rec.current = r;
-    r.start();
-  };
-
-  const toggleMic = () => {
-    if (listening) { stopListening(); return; }
-    window.speechSynthesis?.cancel(); // don't transcribe our own read-aloud
-    committed.current = input.trim(); // keep anything already typed
-    interim.current = "";
-    restarts.current = 0;
-    wantListen.current = true;
-    setVoiceNote(null);
-    setListening(true);
-    armSilence(FIRST_WORDS_MS);
-    startSession();
+  /** Changes made with the edit form or one-click fixes are summarised in the chat too. */
+  const changeFromPanel = (nb: Booking) => {
+    const changes = describeChanges(booking, nb);
+    if (nb.carrierOverride && nb.carrierOverride !== booking.carrierOverride) changes.push(`carrier switched to ${nb.carrierOverride}`);
+    setBooking(nb);
+    if (changes.length) say(`Updated: ${changes.join(", ")}. Everything has been re-checked.`);
   };
 
   const reset = () => {
-    wantListen.current = false;
-    rec.current?.abort();
-    if (silence.current) clearTimeout(silence.current);
-    committed.current = ""; interim.current = ""; setListening(false);
-    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
-    setMessages([WELCOME]); setBooking(emptyBooking()); setMeta(emptyMeta()); setBasic(false); setToday(null); setInput("");
+    setMessages([WELCOME]);
+    setBooking({ ...emptyBooking(), sellerName: store.profile.businessName || null });
+    setMeta(emptyMeta()); setBasic(false); setToday(null); setInput("");
   };
 
-  const started = messages.length > 1;
+  const chips = started && today ? suggestions(booking, meta, today) : [];
 
   return (
     <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
@@ -208,15 +125,10 @@ export function ChatPanel() {
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-lime-100 text-forest-800"><Sparkles className="h-4 w-4" aria-hidden /></span>
           <div className="min-w-0 flex-1 leading-tight">
             <div className="text-sm font-semibold text-forest-950">Booking assistant</div>
-            <div className="text-xs text-slate-600">{basic ? "Basic mode" : voiceOk ? "Type or talk, in plain English" : "Understands plain English"}</div>
+            <div className="flex items-center gap-1 truncate text-xs text-slate-600">
+              {basic ? "Basic mode" : <><UserRound className="h-3 w-3" aria-hidden />{store.profile.businessName ? `Booking as ${store.profile.businessName}` : "Plain English is fine"}</>}
+            </div>
           </div>
-          {voiceOk && (
-            <button onClick={() => { setSpeak(!speak); if (speak) window.speechSynthesis?.cancel(); }} aria-pressed={speak}
-              aria-label={speak ? "Stop reading replies aloud" : "Read replies aloud"} title={speak ? "Stop reading replies aloud" : "Read replies aloud"}
-              className={`rounded-lg p-1.5 transition ${speak ? "bg-lime-100 text-forest-800" : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"}`}>
-              {speak ? <Volume2 className="h-4 w-4" aria-hidden /> : <VolumeX className="h-4 w-4" aria-hidden />}
-            </button>
-          )}
           {started && (
             <button onClick={reset} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900">
               <RotateCcw className="h-3.5 w-3.5" aria-hidden />Start over
@@ -256,42 +168,39 @@ export function ChatPanel() {
         {basic && (
           <p className="border-t border-amber-100 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">Smart parsing is busy, using basic mode. Short, simple messages work best.</p>
         )}
-        {voiceNote && <p className="border-t border-slate-100 bg-slate-50 px-4 py-1.5 text-xs text-slate-700" role="status">{voiceNote}</p>}
-        {started && !busy && (
+        {chips.length > 0 && !busy && (
           <div className="flex gap-1.5 overflow-x-auto px-3 pt-2 [scrollbar-width:none]" aria-label="Suggested replies">
-            {FOLLOW_UPS.map((f) => (
-              <button key={f} onClick={() => send(f)} className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 hover:border-lime-400 hover:text-forest-950">{f}</button>
+            {chips.map((f) => (
+              <button key={f} onClick={() => send(f)}
+                className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition ${f === "Confirm booking" ? "border-forest-900 bg-forest-900 text-white hover:bg-forest-800" : "border-slate-200 bg-white text-slate-700 hover:border-lime-400 hover:text-forest-950"}`}>
+                {f}
+              </button>
             ))}
           </div>
         )}
         <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="p-3">
-          <div className={`flex items-end gap-2 rounded-xl border bg-white p-1.5 pl-3 focus-within:ring-2 ${listening ? "border-lime-500 ring-2 ring-lime-400/40" : "border-slate-300 focus-within:border-forest-700 focus-within:ring-lime-400/30"}`}>
+          <div className="flex items-end gap-2 rounded-xl border border-slate-300 bg-white p-1.5 pl-3 focus-within:border-forest-700 focus-within:ring-2 focus-within:ring-lime-400/30">
             <label htmlFor="chat-input" className="sr-only">Message</label>
-            <textarea id="chat-input" ref={field} rows={1} value={input} disabled={busy} readOnly={listening} maxLength={1500}
+            <textarea id="chat-input" ref={field} rows={1} value={input} disabled={busy} maxLength={1500}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
-              placeholder={listening ? "Listening… speak naturally, pauses are fine" : started ? "Reply, or change any detail…" : "Describe your shipment…"}
+              placeholder={started ? "Reply, change any detail, or say \"confirm booking\"…" : "Describe your shipment…"}
               className="max-h-32 min-h-[36px] flex-1 resize-none bg-transparent py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-500" />
-            {voiceOk && (
-              <button type="button" onClick={toggleMic} disabled={busy} aria-pressed={listening} aria-label={listening ? "Stop listening" : "Speak your message"}
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition ${listening ? "animate-pulse bg-lime-400 text-forest-950" : "text-slate-600 hover:bg-slate-100 hover:text-forest-950"}`}>
-                {listening ? <Square className="h-3.5 w-3.5 fill-current" aria-hidden /> : <Mic className="h-4 w-4" aria-hidden />}
-              </button>
-            )}
             <button type="submit" disabled={busy || !input.trim()} aria-label="Send"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-forest-900 text-white transition hover:bg-forest-800 disabled:bg-slate-200 disabled:text-slate-500">
               <Send className="h-4 w-4" aria-hidden />
             </button>
           </div>
-          <p className="mt-1.5 px-1 text-[11px] text-slate-500" aria-live="polite">
-            {listening ? "Listening. Tap ■ when you're done, or pause for 4 seconds, and it sends." : "Demo: don't enter real customer data."}
+          <p className="mt-1.5 flex items-center gap-1 px-1 text-[11px] text-slate-500">
+            {started ? <><Pencil className="h-3 w-3" aria-hidden />Prefer a form? Use <b className="font-semibold text-slate-700">Edit details</b> on the right.</> : "Demo: don't enter real customer data."}
           </p>
         </form>
       </section>
 
       <div aria-label="Live booking">
         {started && today ? (
-          <ResultView booking={booking} today={today} classifications={classifications} onChange={setBooking} />
+          <ResultView ref={result} booking={booking} today={today} classifications={classifications} onChange={changeFromPanel}
+            onConfirmed={(b, carrier, warnings, existingId) => store.confirmOrder(b, carrier, warnings, existingId)} />
         ) : (
           <EmptyState />
         )}
@@ -302,10 +211,10 @@ export function ChatPanel() {
 
 function EmptyState() {
   const steps = [
-    { icon: MessageSquare, title: "Describe it", text: "Type or talk: what you're shipping, from where to where. Plain English is fine." },
-    { icon: ListChecks, title: "We check 10 rules", text: "HS codes, values, cartons, pallet weight, banned goods, dates, all live." },
-    { icon: Truck, title: "Pick the carrier", text: "Every option for your route, why any are ruled out, and the best fit." },
-    { icon: Mail, title: "Tell the receiver", text: "A delivery notice in their language, so they know exactly what to count." },
+    { icon: MessageSquare, title: "Describe it", text: "What you're shipping, from where to where. Plain English is fine; tap the quick replies to go faster." },
+    { icon: ListChecks, title: "We check 10 rules", text: "HS codes, values, cartons, pallet weight, banned goods, dates. Red = must fix, amber = warning." },
+    { icon: Truck, title: "Pick the carrier", text: "Every option for your route, why any are ruled out, and the best fit for your priority." },
+    { icon: Mail, title: "Confirm and track", text: "Confirmed bookings go to My orders, where you can edit them until the day before collection." },
   ];
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,40,30,0.05)]">

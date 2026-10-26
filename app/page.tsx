@@ -1,19 +1,28 @@
 "use client";
-import { Info, LayoutList, MessageSquare, Truck } from "lucide-react";
+import { Bell, BellOff, Info, MessageSquare, PackageCheck, Sheet, Truck } from "lucide-react";
 import { useState } from "react";
+import { AccountPanel } from "@/components/AccountPanel";
 import { ChatPanel } from "@/components/ChatPanel";
+import { StoreProvider, useStore } from "@/components/store";
 import { UploadPanel } from "@/components/UploadPanel";
 import { GOV_UK_EXPORT_GUIDE, NOT_CHECKED } from "@/lib/guidance";
 
-type Tab = "chat" | "upload";
-const TABS: { id: Tab; label: string; sub: string; icon: typeof MessageSquare }[] = [
-  { id: "chat", label: "Book a shipment", sub: "Describe it in plain English; we check it as you go.", icon: MessageSquare },
-  { id: "upload", label: "All bookings", sub: "Upload a spreadsheet and check every booking at once.", icon: LayoutList },
+type Tab = "chat" | "upload" | "orders";
+const TABS: { id: Tab; label: string; short: string; sub: string; icon: typeof MessageSquare }[] = [
+  { id: "chat", label: "Book a shipment", short: "Book", sub: "Describe it in plain English; we check it as you go.", icon: MessageSquare },
+  { id: "upload", label: "Check a spreadsheet", short: "Spreadsheet", sub: "Upload many bookings at once; fix, pick a carrier and confirm each one.", icon: Sheet },
+  { id: "orders", label: "My orders", short: "Orders", sub: "Your seller profile and every confirmed order. Edit until the day before collection.", icon: PackageCheck },
 ];
 
 export default function Home() {
+  return <StoreProvider><Shell /></StoreProvider>;
+}
+
+function Shell() {
+  const store = useStore();
   const [tab, setTab] = useState<Tab>("chat");
   const active = TABS.find((t) => t.id === tab)!;
+  const editable = store.orders.filter((o) => o.status === "confirmed").length;
   return (
     <div className="flex min-h-full flex-1">
       {/* sidebar: laptops and up */}
@@ -29,13 +38,20 @@ export default function Home() {
               {tab === id && <span className="absolute inset-y-2 left-0 w-1 rounded-r bg-lime-400" aria-hidden />}
               <Icon className={`h-[18px] w-[18px] ${tab === id ? "text-lime-400" : ""}`} aria-hidden />
               {label}
+              {id === "orders" && editable > 0 && <span className="ml-auto rounded-full bg-lime-400 px-1.5 text-[11px] font-bold text-forest-950 tnum">{editable}</span>}
             </button>
           ))}
         </nav>
         <div className="mt-auto space-y-3">
+          <button onClick={() => store.setSounds(!store.sounds)} aria-pressed={store.sounds}
+            className="flex w-full items-center gap-2 rounded-xl bg-white/5 px-3 py-2 text-left text-xs text-white/85 hover:bg-white/10">
+            {store.sounds ? <Bell className="h-4 w-4 text-lime-400" aria-hidden /> : <BellOff className="h-4 w-4" aria-hidden />}
+            <span className="flex-1">Alert sounds</span>
+            <span className="font-semibold">{store.sounds ? "On" : "Off"}</span>
+          </button>
           <div className="rounded-xl border border-dashed border-lime-400/40 bg-white/5 p-3 text-xs leading-relaxed text-white/80">
             <p className="font-semibold text-lime-300">Demo</p>
-            <p className="mt-1">Use sample data only. Spreadsheets are read in your browser and never uploaded.</p>
+            <p className="mt-1">Use sample data only. Your profile and orders are saved in this browser; spreadsheets are never uploaded.</p>
           </div>
           <a href="#scope" className="flex items-center gap-2 px-1 text-xs text-white/70 hover:text-white">
             <Info className="h-3.5 w-3.5" aria-hidden /> What this tool doesn&apos;t check
@@ -46,14 +62,19 @@ export default function Home() {
       <div className="flex min-w-0 flex-1 flex-col">
         {/* top bar: phones and tablets */}
         <header className="sticky top-0 z-40 bg-forest-900 px-4 pb-3 pt-3 text-white lg:hidden">
-          <Brand compact />
+          <div className="flex items-center justify-between">
+            <Brand compact />
+            <button onClick={() => store.setSounds(!store.sounds)} aria-pressed={store.sounds} aria-label={store.sounds ? "Turn alert sounds off" : "Turn alert sounds on"} className="rounded-lg p-2 hover:bg-white/10">
+              {store.sounds ? <Bell className="h-4 w-4 text-lime-400" aria-hidden /> : <BellOff className="h-4 w-4" aria-hidden />}
+            </button>
+          </div>
           <div role="tablist" aria-label="Pages" className="mt-3 flex gap-1 rounded-full bg-white/10 p-1">
-            {TABS.map(({ id, label, icon: Icon }) => (
+            {TABS.map(({ id, short, icon: Icon }) => (
               <button key={id} id={`tab-${id}-m`} role="tab" aria-selected={tab === id} aria-controls={`panel-${id}`} onClick={() => setTab(id)}
-                className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-2 py-1.5 text-sm font-medium transition ${
                   tab === id ? "bg-lime-400 text-forest-950" : "text-white/80"
                 }`}>
-                <Icon className="h-4 w-4" aria-hidden />{label}
+                <Icon className="h-4 w-4" aria-hidden />{short}
               </button>
             ))}
           </div>
@@ -64,9 +85,10 @@ export default function Home() {
             <h2 className="text-2xl font-semibold tracking-tight text-forest-950">{active.label}</h2>
             <p className="mt-0.5 text-sm text-slate-600">{active.sub}</p>
           </div>
-          {/* both stay mounted so switching keeps the conversation and the loaded file */}
+          {/* all stay mounted so switching keeps the conversation and the loaded file */}
           <div id="panel-chat" role="tabpanel" aria-labelledby="tab-chat" hidden={tab !== "chat"}><ChatPanel /></div>
           <div id="panel-upload" role="tabpanel" aria-labelledby="tab-upload" hidden={tab !== "upload"}><UploadPanel /></div>
+          <div id="panel-orders" role="tabpanel" aria-labelledby="tab-orders" hidden={tab !== "orders"}><AccountPanel /></div>
         </main>
 
         <footer id="scope" className="border-t border-slate-200 bg-white">

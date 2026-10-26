@@ -12,10 +12,12 @@ Built for the Ops Hackathon, Case 2 (Shipment Booking & Error Checker).
 - **Pre-flight checks.** The 10 fixed rules (R-01 to R-10), each with severity, the actual numbers and a fix. Status: *Not ready to dispatch* (any red), *Can dispatch after review* (amber only), *Ready to dispatch*.
 - **Carrier recommendation** from the fixed rate card for the seller's priority (Cheapest, Fastest, Most reliable, Balanced). Carriers that can't take the weight per pallet are greyed out with the reason. One-click fixes for an overweight pallet: switch carrier, or add pallets.
 - **Confirm booking** stays disabled while any red check fails, then shows a plain-English confirmation.
-- **Plain severity words.** Red checks show as "Must fix", amber as "Check before shipping", each with a small Red / Amber tag so they map to the rulebook.
-- **Receiver notice.** Once a booking can be confirmed, a delivery notice for the receiving site (what's coming, cartons, pallets, items, carrier, expected arrival, slot status) in English, German, French or Dutch. Hand-written translations, no AI.
-- **Route map** of the lane (UK origin, Dover–Calais, destination city), drawn from fixed outlines with no map service.
-- **Voice.** A microphone button to speak instead of typing, and an optional read-aloud of replies, using the browser's built-in speech features (hidden where unsupported, e.g. Firefox).
+- **Must fix vs Warning.** Red checks show as "Must fix" (serious, blocks the booking), amber as "Warning" (you can still ship), each with its Red / Amber rulebook tag. Prohibited goods also get a red banner.
+- **Confirm with alerts.** Confirm (button, or typing "confirm booking" in the chat) is refused with a red alert and sound while must-fix items remain; warnings play a softer chime and ask "confirm anyway?"; a clean booking confirms silently.
+- **Calculator tab.** Every rule's arithmetic, step by step, with the case's fixed formulas (tests check it always agrees with the rules engine).
+- **Edit anything.** An edit form for every booking and item, in the chat, for each spreadsheet booking, and for saved orders.
+- **My orders.** Seller profile plus the full order history, saved in the visitor's browser. Orders can be edited or cancelled until the end of the day before collection, with a change log.
+- **Receiver notice** for the receiving site, and a **route map** of the lane.
 
 ## Design principle: the AI understands, code decides
 

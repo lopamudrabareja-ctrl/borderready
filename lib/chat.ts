@@ -50,7 +50,9 @@ export function runTurn(prev: Booking, meta: ChatMeta, ex: Extraction, today: st
   const recalc = recalculation(prev, booking, before, after);
   if (recalc) parts.push(recalc);
 
-  const missing = missingFields(booking).filter((m) => !next.unknown.includes(keyOf(m)) && (next.asked[keyOf(m)] ?? 0) < MAX_ASKS);
+  // required details are asked up to twice, optional ones (SKU) once
+  const missing = missingFields(booking).filter((m) => !next.unknown.includes(keyOf(m)) && (next.asked[keyOf(m)] ?? 0) < (m.optional ? 1 : MAX_ASKS));
+  const required = missing.filter((m) => !m.optional);
 
   // Warn about new red failures, except a blank HS code we're about to ask for anyway.
   const askingHs = (sku: string) => missing.some((m) => m.sku === sku && m.field === "hsCode");
@@ -61,8 +63,8 @@ export function runTurn(prev: Booking, meta: ChatMeta, ex: Extraction, today: st
     if (r.ruleId === "R-01" && booking.items.filter((i) => !i.hsCode || !/^\d{6,}$/.test(i.hsCode)).every((i) => !i.hsCode && askingHs(i.sku))) continue;
     parts.push(`Must fix (${r.ruleId}): ${r.message} ${r.fix}`);
   }
-  if (missing.length) {
-    for (const m of missing) next.asked[keyOf(m)] = (next.asked[keyOf(m)] ?? 0) + 1;
+  for (const m of missing) next.asked[keyOf(m)] = (next.asked[keyOf(m)] ?? 0) + 1;
+  if (required.length) {
     const ship = missing.filter((m) => m.group === "shipment").map((m) => m.label);
     const byItem = new Map<string, string[]>();
     for (const m of missing.filter((x) => x.group === "item")) byItem.set(m.itemName!, [...(byItem.get(m.itemName!) ?? []), m.label]);
@@ -73,13 +75,18 @@ export function runTurn(prev: Booking, meta: ChatMeta, ex: Extraction, today: st
     parts.push(lines.join("\n"));
   } else {
     const status = after.some((r) => r.status !== "pass" && r.severity === "red") ? "not ready to dispatch yet"
-      : after.some((r) => r.status !== "pass") ? "ready to dispatch once you've looked at the warnings (check before shipping)" : "ready to dispatch";
-    parts.push(`That's everything I need. The booking is ${status}.`);
+      : after.some((r) => r.status !== "pass") ? "ready to dispatch once you've looked at the warnings" : "ready to dispatch";
+    const optional = missing.filter((m) => m.optional);
+    parts.push(`That's everything I need. The booking is ${status}.${optional.length ? ` (Optional: tell me the SKU / product code for ${optional.map((m) => m.itemName).join(", ")} if you have one.)` : ""}`);
+    parts.push(after.some((r) => r.status !== "pass" && r.severity === "red")
+      ? "Fix the \"must fix\" items, then say \"confirm booking\"."
+      : "Say \"confirm booking\" when you're happy, or tell me anything to change.");
   }
   return { booking, meta: next, reply: parts.join("\n\n") };
 }
 
 const LABELS: [keyof Booking, string, (v: unknown, b: Booking) => string][] = [
+  ["sellerName", "seller", (v) => String(v)],
   ["originCity", "from", (v) => String(v)],
   ["destCity", "to", (v, b) => `${v}${b.destCountry ? ` (${b.destCountry})` : ""}`],
   ["destType", "delivering to a", (v) => String(v).toLowerCase()],
@@ -92,7 +99,7 @@ const LABELS: [keyof Booking, string, (v: unknown, b: Booking) => string][] = [
   ["appointmentBooked", "delivery appointment booked", (v) => String(v).toLowerCase()],
 ];
 
-function describeChanges(a: Booking, b: Booking): string[] {
+export function describeChanges(a: Booking, b: Booking): string[] {
   const out: string[] = [];
   for (const [k, label, fmt] of LABELS) {
     if (b[k] != null && a[k] !== b[k]) out.push(a[k] != null ? `${label} changed to ${fmt(b[k], b)}` : `${label} ${fmt(b[k], b)}`);
