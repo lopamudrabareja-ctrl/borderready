@@ -59,7 +59,7 @@ export function runTurn(prev: Booking, meta: ChatMeta, ex: Extraction, today: st
   for (const r of newlyFailing) {
     if (recalc?.includes(r.ruleId)) continue;
     if (r.ruleId === "R-01" && booking.items.filter((i) => !i.hsCode || !/^\d{6,}$/.test(i.hsCode)).every((i) => !i.hsCode && askingHs(i.sku))) continue;
-    parts.push(`⚠ ${r.ruleId}: ${r.message} ${r.fix}`);
+    parts.push(`Must fix (${r.ruleId}): ${r.message} ${r.fix}`);
   }
   if (missing.length) {
     for (const m of missing) next.asked[keyOf(m)] = (next.asked[keyOf(m)] ?? 0) + 1;
@@ -73,7 +73,7 @@ export function runTurn(prev: Booking, meta: ChatMeta, ex: Extraction, today: st
     parts.push(lines.join("\n"));
   } else {
     const status = after.some((r) => r.status !== "pass" && r.severity === "red") ? "not ready to dispatch yet"
-      : after.some((r) => r.status !== "pass") ? "ready to dispatch after a quick review of the amber items" : "ready to dispatch";
+      : after.some((r) => r.status !== "pass") ? "ready to dispatch once you've looked at the warnings (check before shipping)" : "ready to dispatch";
     parts.push(`That's everything I need. The booking is ${status}.`);
   }
   return { booking, meta: next, reply: parts.join("\n\n") };

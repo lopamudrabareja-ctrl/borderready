@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f4f6f9;
+  --background: #f3f5f2;
   --foreground: #0b1220;
   color-scheme: light;
 }
@@ -11,6 +11,12 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* brand: deep forest green for structure and primary actions, lime as the single accent */
+  --color-forest-950: #08221a;
+  --color-forest-900: #0d2f23;
+  --color-forest-800: #14422f;
+  --color-forest-700: #1d5a40;
+  --color-forest-600: #2a7553;
 }
 
 body {
@@ -30,7 +36,7 @@ body {
 }
 .flash { animation: flash 1.6s ease-out; border-radius: 4px; }
 
-@keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes rise { from { transform: translateY(4px); } to { transform: none; } }
 .rise { animation: rise 0.25s ease-out both; }
 
 @keyframes dots { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
@@ -38,9 +44,13 @@ body {
 .typing span:nth-child(2) { animation-delay: 0.15s; }
 .typing span:nth-child(3) { animation-delay: 0.3s; }
 
+/* the lime dashes travel along the route line */
+@keyframes route { to { stroke-dashoffset: -60; } }
+.route-dash { animation: route 3s linear infinite; }
+
 details > summary { list-style: none; }
 details > summary::-webkit-details-marker { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .flash, .rise, .typing span { animation: none; }
+  .flash, .rise, .typing span, .route-dash { animation: none; }
 }

@@ -81,7 +81,7 @@ export function UploadPanel() {
   const update = (i: number, b: Booking) => setData((d) => d && { ...d, bookings: d.bookings.map((x, j) => (j === i ? b : x)) });
   const pick = (i: number) => {
     setSelected(i);
-    if (window.matchMedia("(max-width: 1023px)").matches) setTimeout(() => detail.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+    if (window.matchMedia("(max-width: 1279px)").matches) setTimeout(() => detail.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
   const pickFile = () => input.current?.click();
@@ -97,24 +97,24 @@ export function UploadPanel() {
           onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
           onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); onFile(e.dataTransfer.files[0]); }}
-          className={`rounded-2xl border-2 border-dashed bg-white px-6 py-12 text-center transition ${drag ? "border-teal-500 bg-teal-50/50" : "border-slate-300"}`}
+          className={`rounded-2xl border-2 border-dashed bg-white px-6 py-12 text-center transition ${drag ? "border-lime-500 bg-lime-50/60" : "border-slate-300"}`}
         >
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-sm">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-forest-900 text-lime-400 shadow-sm">
             <FileSpreadsheet className="h-7 w-7" aria-hidden />
           </span>
-          <h2 className="mt-5 text-xl font-semibold tracking-tight text-slate-900">Check a bookings spreadsheet</h2>
+          <h2 className="mt-5 text-xl font-semibold tracking-tight text-forest-950">Check a bookings spreadsheet</h2>
           <p className="mx-auto mt-1.5 max-w-md text-sm text-slate-600">
             Drop an .xlsx file with <b className="font-medium text-slate-800">Bookings</b> and <b className="font-medium text-slate-800">Items</b> sheets in the template layout. Every booking gets all 10 checks and a carrier recommendation.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-2">
-            <button onClick={loadSample} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-60">
+            <button onClick={loadSample} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-forest-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-forest-800 disabled:opacity-60">
               Load sample data <ArrowRight className="h-4 w-4" aria-hidden />
             </button>
             <button onClick={pickFile} disabled={busy} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-60">
               <Upload className="h-4 w-4" aria-hidden /> Choose file
             </button>
           </div>
-          <a href={SAMPLE_URL} download="shipment_copilot_sample.xlsx" className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-teal-700 hover:underline">
+          <a href={SAMPLE_URL} download="shipment_copilot_sample.xlsx" className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-forest-700 hover:underline">
             <Download className="h-3.5 w-3.5" aria-hidden /> Download the sample file to see the layout
           </a>
           <p className="mt-4 text-[11px] text-slate-500">Read in your browser. Nothing is uploaded.</p>
@@ -131,7 +131,7 @@ export function UploadPanel() {
         <div className="flex min-w-0 items-center gap-2.5">
           <FileSpreadsheet className="h-5 w-5 shrink-0 text-slate-500" aria-hidden />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">{data.name}</div>
+            <div className="truncate text-sm font-semibold text-forest-950">{data.name}</div>
             <div className="text-xs text-slate-600 tnum">{data.bookings.length} bookings checked</div>
           </div>
         </div>
@@ -166,8 +166,8 @@ export function UploadPanel() {
         </details>
       )}
 
-      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
-        <nav aria-label="Bookings" className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] lg:sticky lg:top-[88px] lg:max-h-[calc(100vh-112px)] lg:overflow-y-auto">
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+        <nav aria-label="Bookings" className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto">
           {visible.length === 0 && <p className="p-6 text-center text-sm text-slate-500">No bookings with this status.</p>}
           <ul className="divide-y divide-slate-100">
             {visible.map(({ b, i }) => {
@@ -177,10 +177,10 @@ export function UploadPanel() {
               return (
                 <li key={b.id}>
                   <button onClick={() => pick(i)} aria-current={active}
-                    className={`relative flex w-full flex-col gap-1.5 px-4 py-3 text-left transition ${active ? "bg-teal-50/60" : "hover:bg-slate-50"}`}>
-                    {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-teal-600" aria-hidden />}
+                    className={`relative flex w-full flex-col gap-1.5 px-4 py-3 text-left transition ${active ? "bg-lime-50" : "hover:bg-slate-50"}`}>
+                    {active && <span className="absolute inset-y-0 left-0 w-0.5 bg-lime-500" aria-hidden />}
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-[13px] font-semibold text-slate-900">{b.id}</span>
+                      <span className="font-mono text-[13px] font-semibold text-forest-950">{b.id}</span>
                       {b !== data.original[i] && <span className="rounded bg-sky-100 px-1 text-[10px] font-semibold text-sky-800">edited</span>}
                       <span className="ml-auto"><StatusPill status={c.status} short /></span>
                     </div>
@@ -229,12 +229,12 @@ function Tile({ label, value, status, active, onClick }: { label: string; value:
   const Icon = s?.icon;
   return (
     <button onClick={onClick} aria-pressed={active}
-      className={`rounded-2xl border bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${active ? "border-slate-900 ring-1 ring-slate-900" : "border-slate-200/80 hover:border-slate-300"}`}>
+      className={`rounded-2xl border bg-white p-4 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${active ? "border-forest-900 ring-1 ring-forest-900" : "border-slate-200/80 hover:border-slate-300"}`}>
       <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
         {Icon && <Icon className={`h-3.5 w-3.5 ${s!.tone}`} aria-hidden />}
-        <span className="truncate">{label}</span>
+        {s ? <><span className="truncate sm:hidden">{s.short}</span><span className="hidden truncate sm:inline">{label}</span></> : <span className="truncate">{label}</span>}
       </div>
-      <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 tnum">{value}</div>
+      <div className="mt-1 text-2xl font-semibold tracking-tight text-forest-950 tnum">{value}</div>
     </button>
   );
 }
