@@ -3,7 +3,7 @@
 **Book it right, before it reaches the border.** Book a pallet shipment from the UK to Germany, France or the Netherlands, and catch mistakes before it leaves.
 Built for the Ops Hackathon, Case 2 (Shipment Booking & Error Checker).
 
-**Live demo:** https://borderready-app.vercel.app (public, no login). Also at https://shipment-copilot.vercel.app.
+**Live demo:** https://borderready-app.vercel.app (public, no login).
 
 **Code:** https://github.com/lopamudrabareja-ctrl/borderready
 
