@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f7f9;
-  --foreground: #0f172a;
+  --background: #f4f6f9;
+  --foreground: #0b1220;
   color-scheme: light;
 }
 
@@ -17,15 +17,30 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-feature-settings: "cv11", "ss01";
 }
+
+/* numbers line up in tables, prices and stats */
+.tnum { font-variant-numeric: tabular-nums; }
 
 /* brief highlight when a value is recalculated */
 @keyframes flash {
-  0% { background-color: rgb(253 224 71 / 0.7); }
-  100% { background-color: transparent; }
+  0% { background-color: rgb(253 224 71 / 0.75); box-shadow: 0 0 0 3px rgb(253 224 71 / 0.75); }
+  100% { background-color: transparent; box-shadow: 0 0 0 3px transparent; }
 }
-.flash { animation: flash 1.4s ease-out; border-radius: 4px; }
+.flash { animation: flash 1.6s ease-out; border-radius: 4px; }
+
+@keyframes rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 0.25s ease-out both; }
+
+@keyframes dots { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+.typing span { animation: dots 1.2s infinite both; }
+.typing span:nth-child(2) { animation-delay: 0.15s; }
+.typing span:nth-child(3) { animation-delay: 0.3s; }
+
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .flash { animation: none; }
+  .flash, .rise, .typing span { animation: none; }
 }

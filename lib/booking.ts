@@ -86,8 +86,9 @@ export const itemsCartons = (b: Booking) => b.items.reduce((s, i) => s + (effect
 export function effectiveBooking(b: Booking): Booking {
   const items = b.items.map(effectiveItem);
   const e = { ...b, items };
-  if (e.cartons == null && items.length) e.cartons = itemsCartons(e);
-  if (e.declaredValue == null && items.length) e.declaredValue = itemsValue(e);
+  // derive totals only when every item has the numbers; a partial sum would make the checks pass falsely
+  if (e.cartons == null && items.length && items.every((i) => i.cartons != null)) e.cartons = itemsCartons(e);
+  if (e.declaredValue == null && items.length && items.every((i) => i.quantity != null && i.unitPrice != null)) e.declaredValue = itemsValue(e);
   return e;
 }
 

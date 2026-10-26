@@ -1,4 +1,5 @@
 "use client";
+import { CircleCheck, CircleHelp, CircleX, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { OverallStatus } from "@/lib/types";
 
@@ -20,40 +21,49 @@ export function Flash({ value, children }: { value: unknown; children: React.Rea
 export function Term({ label, tip }: { label: string; tip: string }) {
   return (
     <span className="group relative inline-block">
-      <span tabIndex={0} className="cursor-help underline decoration-dotted decoration-slate-400 underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-sky-500 rounded-sm">
+      <span tabIndex={0} className="cursor-help rounded-sm underline decoration-slate-300 decoration-dotted underline-offset-[3px] outline-none focus-visible:ring-2 focus-visible:ring-teal-500">
         {label}
       </span>
-      <span role="tooltip" className="pointer-events-none invisible absolute bottom-full left-0 z-20 mb-1 w-64 rounded-md bg-slate-900 px-3 py-2 text-xs font-normal leading-snug text-white opacity-0 shadow-lg transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+      <span role="tooltip" className="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-1.5 w-64 rounded-lg bg-slate-900 px-3 py-2 text-xs font-normal normal-case leading-snug tracking-normal text-white opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
         {tip}
       </span>
     </span>
   );
 }
 
-export const STATUS_STYLE: Record<OverallStatus, { box: string; pill: string; dot: string }> = {
-  "Not ready to dispatch": { box: "bg-red-50 border-red-200 text-red-900", pill: "bg-red-100 text-red-800", dot: "bg-red-500" },
-  "Can dispatch after review": { box: "bg-amber-50 border-amber-200 text-amber-900", pill: "bg-amber-100 text-amber-900", dot: "bg-amber-500" },
-  "Ready to dispatch": { box: "bg-emerald-50 border-emerald-200 text-emerald-900", pill: "bg-emerald-100 text-emerald-800", dot: "bg-emerald-500" },
+export const STATUS: Record<OverallStatus, { icon: LucideIcon; tone: string; soft: string; text: string; ring: string; dot: string; short: string }> = {
+  "Not ready to dispatch": { icon: CircleX, tone: "text-red-600", soft: "bg-red-50", text: "text-red-800", ring: "ring-red-200", dot: "bg-red-500", short: "Not ready" },
+  "Can dispatch after review": { icon: TriangleAlert, tone: "text-amber-500", soft: "bg-amber-50", text: "text-amber-900", ring: "ring-amber-200", dot: "bg-amber-500", short: "Review" },
+  "Ready to dispatch": { icon: CircleCheck, tone: "text-emerald-600", soft: "bg-emerald-50", text: "text-emerald-800", ring: "ring-emerald-200", dot: "bg-emerald-500", short: "Ready" },
 };
 
-export function StatusPill({ status }: { status: OverallStatus }) {
-  const s = STATUS_STYLE[status];
+export function StatusPill({ status, short }: { status: OverallStatus; short?: boolean }) {
+  const s = STATUS[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${s.pill}`}>
+    <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${s.soft} ${s.text} ${s.ring}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
-      {status}
+      {short ? s.short : status}
     </span>
   );
 }
 
-export function Section({ title, children, aside }: { title: React.ReactNode; children: React.ReactNode; aside?: React.ReactNode }) {
+export const CHECK_ICON = { red: CircleX, amber: TriangleAlert, unknown: CircleHelp, pass: CircleCheck };
+
+export function Card({ title, icon: Icon, aside, children, className = "" }: {
+  title?: React.ReactNode; icon?: LucideIcon; aside?: React.ReactNode; children: React.ReactNode; className?: string;
+}) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
-        {aside}
-      </div>
-      {children}
+    <section className={`rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${className}`}>
+      {title && (
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            {Icon && <Icon className="h-4 w-4 text-slate-400" aria-hidden />}
+            {title}
+          </h2>
+          {aside}
+        </div>
+      )}
+      <div className="p-5">{children}</div>
     </section>
   );
 }
@@ -67,6 +77,6 @@ export const gbp = (n: number | null | undefined) =>
 
 export const fmtDate = (iso: string | null) => {
   if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  return `${d}-${m}-${y}`;
+  const d = new Date(`${iso}T12:00:00`);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 };

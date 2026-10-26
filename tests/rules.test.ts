@@ -156,3 +156,11 @@ describe("R-05 one-click switch", () => {
     expect(check({ ...heavy, carrierOverride: "Carrier B" }, "R-05").status).toBe("pass");
   });
 });
+
+describe("R-02 with prices not given yet", () => {
+  it("is cannot-check, not a £0 = £0 pass", () => {
+    const r = check(booking({ declaredValue: null, items: [item({ quantity: null, unitPrice: null })] }), "R-02");
+    expect(r.status).toBe("cannot-check");
+    expect(r.message).not.toContain("£0");
+  });
+});

@@ -28,6 +28,11 @@ export function r01(b: Booking): CheckResult {
 
 export function r02(b: Booking): CheckResult {
   if (b.declaredValue == null || !b.items.length) return cannot("R-02", "red", "Declared value or items missing.", "Enter the total declared value and the item prices.");
+  const unpriced = b.items.filter((i) => i.quantity == null || i.unitPrice == null);
+  if (unpriced.length) {
+    return cannot("R-02", "red", `Quantity or unit price missing for ${unpriced.map((i) => i.description || i.sku).join(", ")}, so the total can't be checked yet.`,
+      "Enter each item's quantity and unit price.");
+  }
   const sum = b.items.reduce((s, i) => s + (i.quantity ?? 0) * (i.unitPrice ?? 0), 0);
   if (sum === 0 && b.declaredValue !== 0) {
     return fail("R-02", "red", `Declared value is ${gbp(b.declaredValue)} but the items add up to £0 (quantities or unit prices are missing or zero).`,
