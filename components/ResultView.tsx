@@ -1,6 +1,6 @@
 "use client";
 import {
-  ArrowRight, Ban, BadgeCheck, Boxes, Building2, Calculator, Calendar, Check, ChevronDown, CircleCheck, CircleX, Copy, ListChecks, Lock, Mail,
+  ArrowRight, Ban, BadgeCheck, Boxes, Building2, Calculator, Calendar, Check, ChevronDown, CircleCheck, CircleX, Copy, Download, FileText, ListChecks, Lock, Mail,
   MapPin, Package, Pencil, Route, TriangleAlert, Truck, Warehouse, XCircle,
 } from "lucide-react";
 import { useImperativeHandle, useMemo, useState, type Ref } from "react";
@@ -10,13 +10,14 @@ import { BALANCED_WEIGHTS, recommend } from "@/lib/carriers";
 import { decide, type Decision } from "@/lib/confirm";
 import { CALAIS, CITIES, DOVER, MAP_H, MAP_W, OUTLINES, project, toPath, type LatLon } from "@/lib/geo";
 import { GLOSSARY, nextSteps } from "@/lib/guidance";
+import { downloadHtml, invoiceHtml, noticeHtml } from "@/lib/documents";
 import { addDays, buildNotice } from "@/lib/notice";
 import { editCutoff, loadSounds } from "@/lib/orders";
 import { chosenCarrier, isBlocking, overallStatus, runChecks, type Classifications } from "@/lib/rules";
 import { playAlert } from "@/lib/sound";
 import type { Booking, CarrierOption, CheckAction, CheckResult, OverallStatus, RateOption } from "@/lib/types";
 import { BookingEditor } from "./BookingEditor";
-import { CHECK_ICON, Card, Flash, PillTabs, SEVERITY, STATUS, SeverityTag, Term, fmtDate, gbp } from "./ui";
+import { CHECK_ICON, Card, Flash, PillTabs, SEVERITY, STATUS, SeverityTag, Term, fmtDate, gbp, todayISO } from "./ui";
 
 export interface Computed {
   checks: CheckResult[];
@@ -128,7 +129,7 @@ export function ResultView({ booking, today, classifications, onChange, onConfir
             { id: "checks", label: "All checks", badge: issues },
             { id: "calc", label: "Calculator" },
             { id: "details", label: "Shipment details" },
-            { id: "notice", label: "Receiver notice" },
+            { id: "notice", label: "Documents" },
           ]} />
           {view === "overview" && (
             <div className="space-y-4">
@@ -202,7 +203,7 @@ function Progress({ c, confirmed, notified }: { c: Computed; confirmed: boolean;
     { label: "No must-fix", full: "No must-fix issues", done: !c.checks.some((r) => isBlocking(r, "red")) },
     { label: "Carrier", full: "Carrier chosen", done: !!c.selected },
     { label: "Confirmed", full: "Booking confirmed", done: confirmed },
-    { label: "Receiver told", full: "Receiver notice copied", done: confirmed && notified },
+    { label: "Receiver told", full: "Receiver notice downloaded or copied", done: confirmed && notified },
   ];
   const current = steps.findIndex((s) => !s.done);
   return (
@@ -256,7 +257,11 @@ export function StatusHero({ booking, c, confirmed, confirmedId, changedSinceCon
             <Progress c={c} confirmed={confirmed} notified={notified} />
             <div className="mt-3 flex flex-wrap gap-2">
               <button onClick={onOpenNotice} className="inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-forest-800">
-                <Mail className="h-3.5 w-3.5" aria-hidden />Open receiver notice
+                <Mail className="h-3.5 w-3.5" aria-hidden />Receiver notice
+              </button>
+              <button onClick={() => downloadHtml(`invoice-${confirmedId}.html`, invoiceHtml(booking, c.selected, confirmedId ?? booking.id, todayISO()))}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+                <Download className="h-3.5 w-3.5" aria-hidden />Download invoice
               </button>
               <button onClick={onEdit} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50">
                 <Pencil className="h-3.5 w-3.5" aria-hidden />Edit booking
@@ -717,10 +722,10 @@ function NoticeCard({ booking, c, confirmed, onCopied }: { booking: Booking; c: 
   const blocked = c.checks.some((r) => isBlocking(r, "red")) || !c.selected;
   if (blocked || !c.selected) {
     return (
-      <Card title="Receiver notice" icon={Mail}>
+      <Card title="Documents" icon={FileText}>
         <div className="flex items-start gap-3 text-sm text-slate-700">
           <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden />
-          <p>The delivery notice for the receiver is ready once every &quot;must fix&quot; check passes and a carrier is chosen.</p>
+          <p>The draft commercial invoice and the receiver&apos;s delivery notice are ready once every &quot;must fix&quot; check passes and a carrier is chosen.</p>
         </div>
       </Card>
     );
@@ -730,12 +735,31 @@ function NoticeCard({ booking, c, confirmed, onCopied }: { booking: Booking; c: 
     try { await navigator.clipboard.writeText(n.text); setCopied(true); onCopied(); setTimeout(() => setCopied(false), 2000); } catch { setCopied(false); }
   };
   return (
-    <Card title="Receiver notice" icon={Mail} aside={
-      <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-forest-800">
-        {copied ? <Check className="h-3.5 w-3.5 text-lime-400" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}{copied ? "Copied" : "Copy text"}
-      </button>
-    }>
-      <p className="mb-3 text-sm text-slate-700">Send this to the receiving site so they know exactly what&apos;s coming and can count it on arrival.{!confirmed && " Confirm the booking first, then send it."}</p>
+    <Card title="Documents" icon={FileText}>
+      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center gap-2 font-semibold text-forest-950"><FileText className="h-4 w-4 text-forest-700" aria-hidden />Draft commercial invoice</div>
+          <p className="mt-1 text-xs text-slate-600">Every item with HS code, origin, quantity, unit price and totals. Marked draft: add the buyer&apos;s address, your EORI and the Incoterms before use.</p>
+          <button onClick={() => downloadHtml(`invoice-${booking.id}.html`, invoiceHtml(booking, c.selected, booking.id, todayISO()))}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-forest-800">
+            <Download className="h-3.5 w-3.5" aria-hidden />Download invoice
+          </button>
+        </div>
+        <div className="rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center gap-2 font-semibold text-forest-950"><Mail className="h-4 w-4 text-forest-700" aria-hidden />Delivery notice for the receiver</div>
+          <p className="mt-1 text-xs text-slate-600">What&apos;s coming, so the receiving site can count it on arrival.{!confirmed && " Confirm the booking first, then send it."}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={() => { downloadHtml(`delivery-notice-${booking.id}.html`, noticeHtml(booking, c.selected!, booking.id)); onCopied(); }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-forest-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-forest-800">
+              <Download className="h-3.5 w-3.5" aria-hidden />Download notice
+            </button>
+            <button onClick={copy} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+              {copied ? <Check className="h-3.5 w-3.5 text-forest-700" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}{copied ? "Copied" : "Copy text"}
+            </button>
+          </div>
+        </div>
+      </div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Delivery notice preview</p>
       <article className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
         <h3 className="text-lg font-semibold tracking-tight text-forest-950">{n.title}</h3>
         <p className="mt-1 text-sm text-slate-700">{n.intro}</p>

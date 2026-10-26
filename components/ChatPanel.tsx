@@ -68,7 +68,7 @@ export function ChatPanel() {
     const d = result.current.attemptConfirm(force);
     if (d.kind !== "ok") { say(d.message); return; }
     const cutoff = editCutoff(booking);
-    say(`Done! Booking ${d.orderId} is confirmed and saved to My orders.${cutoff ? ` You can still edit it until the end of ${fmtDate(cutoff)}.` : ""} The "Receiver notice" tab has a delivery notice you can send to the receiving site.`);
+    say(`Done! Booking ${d.orderId} is confirmed and saved to My orders.${cutoff ? ` You can still edit it until the end of ${fmtDate(cutoff)}.` : ""} The "Documents" tab has a draft commercial invoice and a delivery notice you can download and send.`);
   };
 
   const send = async (text: string) => {
@@ -119,7 +119,8 @@ export function ChatPanel() {
   const chips = started && today ? suggestions(booking, meta, today) : [];
 
   return (
-    <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+    // before the chat starts the conversation gets most of the room; once a booking exists, the results do
+    <div className={`grid grid-cols-1 items-start gap-5 ${started ? "xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]" : "xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"}`}>
       <section aria-label="Chat" className="flex h-[72vh] min-h-[460px] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,40,30,0.05)] xl:sticky xl:top-6 xl:h-[calc(100vh-9rem)]">
         <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-lime-100 text-forest-800"><Sparkles className="h-4 w-4" aria-hidden /></span>
@@ -211,26 +212,25 @@ export function ChatPanel() {
 
 function EmptyState() {
   const steps = [
-    { icon: MessageSquare, title: "Describe it", text: "What you're shipping, from where to where. Plain English is fine; tap the quick replies to go faster." },
-    { icon: ListChecks, title: "We check 10 rules", text: "HS codes, values, cartons, pallet weight, banned goods, dates. Red = must fix, amber = warning." },
-    { icon: Truck, title: "Pick the carrier", text: "Every option for your route, why any are ruled out, and the best fit for your priority." },
-    { icon: Mail, title: "Confirm and track", text: "Confirmed bookings go to My orders, where you can edit them until the day before collection." },
+    { icon: MessageSquare, title: "Describe it", text: "In plain English. Tap the quick replies to go faster." },
+    { icon: ListChecks, title: "We check 10 rules", text: "Red = must fix, amber = warning, each with the fix." },
+    { icon: Truck, title: "Pick the carrier", text: "The best fit for your priority, and why others are out." },
+    { icon: Mail, title: "Confirm and send", text: "Download the invoice and the receiver's notice; edit in My orders." },
   ];
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(16,40,30,0.05)]">
-      <div className="bg-forest-900 px-6 py-6 text-white sm:px-8">
-        <h2 className="text-xl font-semibold tracking-tight">Book a pallet shipment in a few messages</h2>
-        <p className="mt-1.5 max-w-prose text-sm text-white/75">Your booking, checks and carrier build up here as you chat, and update the moment anything changes.</p>
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+      <div className="bg-forest-900 px-5 py-4 text-white">
+        <h2 className="text-base font-semibold tracking-tight">How it works</h2>
+        <p className="mt-0.5 text-xs text-white/75">Your booking and checks appear here as you chat.</p>
       </div>
-      <ol className="grid gap-3 p-6 sm:grid-cols-2 sm:p-8">
+      <ol className="divide-y divide-slate-100">
         {steps.map(({ icon: Icon, title, text }, i) => (
-          <li key={title} className="rounded-xl bg-slate-50 p-4">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-lime-100 text-forest-800"><Icon className="h-4 w-4" aria-hidden /></span>
-              <span className="text-xs font-semibold text-slate-500 tnum">Step {i + 1}</span>
+          <li key={title} className="flex items-start gap-3 px-5 py-3.5">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-lime-100 text-[12px] font-bold text-forest-800 tnum" aria-hidden>{i + 1}</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-forest-950"><Icon className="h-3.5 w-3.5 text-forest-700" aria-hidden />{title}</div>
+              <p className="text-xs leading-relaxed text-slate-600">{text}</p>
             </div>
-            <div className="mt-3 text-sm font-semibold text-forest-950">{title}</div>
-            <p className="mt-1 text-xs leading-relaxed text-slate-600">{text}</p>
           </li>
         ))}
       </ol>
