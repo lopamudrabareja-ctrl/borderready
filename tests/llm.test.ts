@@ -108,3 +108,16 @@ describe("consistency and gap filling", () => {
     expect(merged.patch.upsertItems![0]).toMatchObject({ sku: "ITEM-1", quantity: 1080, unitPrice: 5, countryOfOrigin: "China" });
   });
 });
+
+describe("slow Gemini", () => {
+  it("after an overload, the next request skips Gemini straight away", async () => {
+    generateContent.mockRejectedValue(Object.assign(new Error("overloaded"), { status: 503 }));
+    const { extractPatch, LLMUnavailable } = await import("@/lib/llm");
+    await expect(extractPatch("x", emptyBooking(), "2026-10-26")).rejects.toBeInstanceOf(LLMUnavailable);
+    const calls = generateContent.mock.calls.length;
+    const t = Date.now();
+    await expect(extractPatch("y", emptyBooking(), "2026-10-26")).rejects.toBeInstanceOf(LLMUnavailable);
+    expect(generateContent.mock.calls.length).toBe(calls); // not called again
+    expect(Date.now() - t).toBeLessThan(50);
+  });
+});

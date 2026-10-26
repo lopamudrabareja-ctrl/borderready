@@ -13,8 +13,10 @@ const MODEL = () => process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 // Extraction needs little reasoning. Lite models accept MINIMAL; larger Flash models reject it, so use LOW there.
 const THINKING = () => ({ thinkingLevel: MODEL().includes("lite") ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW });
 
-const ATTEMPT_MS = 13_000; // per request: the free tier is sometimes slow, so allow one long attempt
-const TOTAL_MS = 15_000; // across retries, then fall back to basic mode
+const ATTEMPT_MS = 9_000; // per request
+const TOTAL_MS = 10_000; // across retries, then fall back to basic mode
+const COOL_DOWN_MS = 60_000; // after Gemini times out or is overloaded, answer in basic mode straight away for a minute
+let coolDownUntil = 0;
 let client: GoogleGenAI | null = null;
 
 function ai() {
@@ -27,6 +29,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** One request, retried up to twice on 429/5xx/timeouts with short exponential backoff, within a hard time budget. */
 async function generate(req: Omit<GenerateContentParameters, "model">) {
+  if (Date.now() < coolDownUntil) throw new LLMUnavailable("Gemini cooling down after a slow or failed response");
   const deadline = Date.now() + TOTAL_MS;
   for (let attempt = 0; ; attempt++) {
     const budget = Math.min(ATTEMPT_MS, deadline - Date.now());
@@ -42,6 +45,7 @@ async function generate(req: Omit<GenerateContentParameters, "model">) {
       const retryable = status === 429 || status >= 500 || status === 0;
       const backoff = 400 * 2 ** attempt;
       if (!retryable || attempt >= 2 || Date.now() + backoff + 1_000 > deadline) {
+        if (retryable) coolDownUntil = Date.now() + COOL_DOWN_MS; // overloaded or timing out: don't make the next seller wait too
         throw new LLMUnavailable(String((e as Error).message ?? e));
       }
       await sleep(backoff);
