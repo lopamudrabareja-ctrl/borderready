@@ -83,7 +83,7 @@ export function Card({ title, icon: Icon, aside, children, className = "" }: {
   title?: React.ReactNode; icon?: LucideIcon; aside?: React.ReactNode; children: React.ReactNode; className?: string;
 }) {
   return (
-    <section className={`rounded-2xl border border-white/70 bg-white/90 shadow-[0_1px_2px_rgba(16,40,30,0.05),0_8px_24px_-12px_rgba(16,40,30,0.12)] backdrop-blur ${className}`}>
+    <section className={`rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)] ${className}`}>
       {title && (
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3.5">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">

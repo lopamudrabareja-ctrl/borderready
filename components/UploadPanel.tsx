@@ -188,7 +188,7 @@ export function UploadPanel() {
         )}
       </div>
 
-      <div role="group" className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 backdrop-blur sm:grid-cols-4" aria-label="Totals across the file">
+      <div role="group" className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:grid-cols-4" aria-label="Totals across the file">
         <Total icon={Boxes} label="Pallets" value={totals.pallets.toLocaleString("en-GB")} />
         <Total icon={Package} label="Cartons" value={totals.cartons.toLocaleString("en-GB")} />
         <Total icon={PoundSterling} label="Declared value" value={gbp(totals.value)} />
@@ -286,13 +286,13 @@ function Tile({ label, value, status, active, onClick, icon }: { label: string; 
   const Icon = s?.icon ?? icon;
   return (
     <button onClick={onClick} aria-pressed={active}
-      className={`flex items-center gap-3 rounded-2xl border bg-white/90 p-4 text-left shadow-[0_1px_2px_rgba(16,40,30,0.05)] backdrop-blur transition ${active ? "border-forest-900 ring-1 ring-forest-900" : "border-slate-200/80 hover:border-slate-300"}`}>
-      {Icon && <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${s ? s.soft : "bg-lime-100"}`}><Icon className={`h-5 w-5 ${s ? s.tone : "text-forest-800"}`} aria-hidden /></span>}
+      className={`flex items-center gap-3 rounded-2xl border p-4 text-left shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition ${active ? "border-forest-900 bg-forest-900 text-white" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+      {Icon && <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${active ? "bg-lime-400" : s ? s.soft : "bg-lime-100"}`}><Icon className={`h-5 w-5 ${active ? "text-forest-950" : s ? s.tone : "text-forest-800"}`} aria-hidden /></span>}
       <div className="min-w-0">
-      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+      <div className={`flex items-center gap-1.5 text-xs font-medium ${active ? "text-white/80" : "text-slate-600"}`}>
         {s ? <><span className="truncate sm:hidden">{s.short}</span><span className="hidden truncate sm:inline">{label}</span></> : <span className="truncate">{label}</span>}
       </div>
-      <div className="text-2xl font-semibold tracking-tight text-forest-950 tnum">{value}</div>
+      <div className={`text-2xl font-semibold tracking-tight tnum ${active ? "text-white" : "text-forest-950"}`}>{value}</div>
       </div>
     </button>
   );

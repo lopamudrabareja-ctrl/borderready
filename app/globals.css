@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f3f5f2;
+  --background: #f1f3f5;
   --foreground: #0b1220;
   color-scheme: light;
 }
@@ -12,17 +12,16 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   /* brand: deep forest green for structure and primary actions, lime as the single accent */
-  --color-forest-950: #08221a;
-  --color-forest-900: #0d2f23;
-  --color-forest-800: #14422f;
-  --color-forest-700: #1d5a40;
-  --color-forest-600: #2a7553;
+  --color-forest-950: #062118;
+  --color-forest-900: #0b3326;
+  --color-forest-800: #124632;
+  --color-forest-700: #1a5c41;
+  --color-forest-600: #257452;
 }
 
 body {
-  /* soft grey-green wash, a little lighter at the top, so white cards float on it */
-  background: radial-gradient(1200px 600px at 70% -10%, #f7faf3 0%, transparent 60%), linear-gradient(180deg, #eef3ee 0%, #e6ede8 100%) fixed;
-  background-color: var(--background);
+  /* plain cool light grey, so the white cards and the green sidebar stand out */
+  background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   font-feature-settings: "cv11", "ss01";
