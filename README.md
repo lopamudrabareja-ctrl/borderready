@@ -5,7 +5,7 @@ Built for the Ops Hackathon, Case 2 (Shipment Booking & Error Checker).
 
 **Live demo:** https://borderready-app.vercel.app (public, no login). Also at https://shipment-copilot.vercel.app.
 
-**Code:** https://github.com/lopamudrabareja-ctrl/shipment-copilot
+**Code:** https://github.com/lopamudrabareja-ctrl/borderready
 
 ## What it does
 
